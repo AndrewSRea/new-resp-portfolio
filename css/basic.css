@@ -200,3 +200,402 @@ body {
         width: 8.333%;
     }
 }
+
+@media (max-width: 1023px) {
+    .row .col.col-d-12 {
+        width: 99.996%;
+    }
+
+    .row .col.col-d-11 {
+        width: 91.663%;
+    }
+
+    .row .col.col-d-10 {
+        width: 83.333%;
+    }
+
+    .row .col.col-d-9 {
+        width: 74.997%;
+    }
+
+    .row .col.col-d-8 {
+        width: 66.664%;
+    }
+
+    .row .col.col-d-7 {
+        width: 58.331%;
+    }
+
+    .row .col.col-d-6 {
+        width: 49.998%;
+    }
+
+    .row .col.col-d-5 {
+        width: 41.665%;
+    }
+
+    .row .col.col-d-4 {
+        width: 33.332%;
+    }
+
+    .row .col.col-d-3 {
+        width: 24.999%;
+    }
+
+    .row .col.col-d-2 {
+        width: 16.666%;
+    }
+
+    .row .col.col-d-1 {
+        width: 8.333%;
+    }
+}
+
+@media (max-width: 560px) {
+    .row .col.col-d-12 {
+        width: 99.996%;
+    }
+
+    .row .col.col-d-11 {
+        width: 91.663%;
+    }
+
+    .row .col.col-d-10 {
+        width: 83.333%;
+    }
+
+    .row .col.col-d-9 {
+        width: 74.997%;
+    }
+
+    .row .col.col-d-8 {
+        width: 66.664%;
+    }
+
+    .row .col.col-d-7 {
+        width: 58.331%;
+    }
+
+    .row .col.col-d-6 {
+        width: 49.998%;
+    }
+
+    .row .col.col-d-5 {
+        width: 41.665%;
+    }
+
+    .row .col.col-d-4 {
+        width: 33.332%;
+    }
+
+    .row .col.col-d-3 {
+        width: 24.999%;
+    }
+
+    .row .col.col-d-2 {
+        width: 16.666%;
+    }
+
+    .row .col.col-d-1 {
+        width: 8.333%;
+    }
+}
+
+.row:after {
+    content: '';
+    display: block;
+    clear: both;
+}
+
+.border-line-v:before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1px;
+    height: 100%;
+    background: -moz-radial-gradient(top, ellipse cover, rgba(197, 202, 213, 0.7) 0%, rgba(255, 255, 255, 0) 70%);
+    background: -webkit-radial-gradient(top, ellipse cover, rgba(197, 202, 213, 0.7) 0%, rgba(255, 255, 255, 0) 70%);
+    background: radial-gradient(ellipse at top, rgba(197, 202, 213, 0.7) 0%, rgba(255, 255, 255, 0) 70%);
+}
+
+.border-line-h:after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 1px;
+    background: -moz-radial-gradient(left, ellipse cover, rgba(197, 202, 213, 0.7) 0%, rgba(255, 255, 255, 0) 70%);
+    background: -webkit-radial-gradient(left, ellipse cover, rgba(197, 202, 213, 0.7) 0%, rgba(255, 255, 255, 0) 70%);
+    background: radial-gradient(ellipse at left, rgba(197, 202, 213, 0.7) 0%, rgba(255, 255, 255, 0) 70%);
+}
+
+/* 4. Preloader */
+
+.preloader {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    text-align: center;
+    background: #ffffff;
+    /* z-index: 1000; */
+}
+
+.preloader .spinner {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 40px;
+}
+
+.preloader .spinner .double-bounce1,
+.preloader .spinner .double-bounce2 {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #78cc6d;
+    opacity: 1;
+    -webkit-animation: sk-bounce 2s infinite ease-in-out;
+    animation: sk-bounce 2s infinite ease-in-out;
+    border-radius: 50%;
+    -moz-border-radius: 50%;
+    -webkit-border-radius: 50%;
+    -khtml-border-radius: 50%;
+}
+
+.preloader .spinner .double-bounce2 {
+    -webkit-animation-delay: -1s;
+    animation-delay: -1s;
+    opacity: 0.1;
+}
+
+/* 5. Typography */
+
+h1, h2, h3, h4, h5, h6 {
+    margin: 0 0 5px 0;
+    font-family: 'Poppins';
+    font-size: 25px;
+    color: #171717;
+    line-height: 33px;
+    font-weight: 500;
+}
+
+h2 {
+    font-size: 24px;
+}
+
+h3 {
+    font-size: 22px;
+}
+
+h4 {
+    font-size: 20px;
+}
+
+h5 {
+    font-size: 18px;
+}
+
+h6 {
+    font-size: 16px;
+}
+
+p {
+    font-size: 14px;
+    line-height: 1.6;
+    padding: 0;
+    margin: 0 0 20px 0;
+}
+
+strong {
+    font-weight: 500;
+}
+
+/* links, buttons */
+.lnks {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 70px;
+    z-index: 10;
+}
+
+.lnks:before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 1px;
+    background: -moz-radial-gradient(left, ellipse cover, rgba(197, 202, 213, 0.7) 0%, rgba(255, 255, 255, 0) 70%);
+    background: -webkit-radial-gradient(left, ellipse cover, rgba(197, 202, 213, 0.7) 0%, rgba(255, 255, 255, 0) 70%);
+    background: radial-gradient(ellipse at left, rgba(197, 202, 213, 0.7) 0%, rgba(255, 255, 255, 0) 70%);
+}
+
+.lnk,
+.button {
+    position: relative;
+    float: left;
+    width: 50%;
+    height: 70px;
+    line-height: 70px;
+    font-size: 12px;
+    color: #171717;
+    font-weight: 500;
+    text-align: center;
+    text-decoration: none;
+    text-transform: uppercase;
+    border: none;
+}
+
+.lnk:before,
+.button:before {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 0;
+    width: 1px;
+    height: 100%;
+    background: -moz-radial-gradient(top, ellipse cover, rgba(197, 202, 213, 0.7) 0%, rgba(255, 255, 255, 0) 70%);
+    background: -webkit-radial-gradient(top, ellipse cover, rgba(197, 202, 213, 0.7) 0%, rgba(255, 255, 255, 0) 70%);
+    background: radial-gradient(ellipse at top, rgba(197, 202, 213, 0.7) 0%, rgba(255, 255, 255, 0) 70%);
+}
+
+.lnk .ion,
+.button .ion,
+.lnk .arrow,
+.button .arrow {
+    margin: 0 0 0 8px;
+    position: relative;
+    top: -2px;
+    display: inline-block;
+    vertical-align: middle;
+    font-size: 18px;
+    transition: all 0.3s ease 0s;
+    -moz-transition: all 0.3s ease 0s;
+    -webkit-transition: all 0.3s ease 0s;
+    -o-transition: all 0.3s ease 0s;
+}
+
+.lnk .arrow,
+.button .arrow {
+    top: -1px;
+    width: 14px;
+    height: 2px;
+}
+
+.lnk .arrow:before,
+.button .arrow:before,
+.lnk .arrow:after,
+.button .arrow:after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background: #171717;
+    transition: all 0.3s ease 0s;
+    -moz-transition: all 0.3s ease 0s;
+    -webkit-transition: all 0.3s ease 0s;
+    -o-transition: all 0.3s ease 0s;
+}
+
+.lnk .arrow:after,
+.button .arrow:after {
+    left: auto;
+    top: auto;
+    right: 0;
+    bottom: 3px;
+    width: 8px;
+    height: 2px;
+    transform: rotate(45deg);
+    -webkit-transform: rotate(45deg);
+    -moz-transform: rotate(45deg);
+    -o-transform: rotate(45deg);
+}
+
+.lnk .text,
+.button .text {
+    transition: all 0.3s ease 0s;
+    -moz-transition: all 0.3s ease 0s;
+    -webkit-transition: all 0.3s ease 0s;
+    -o-transition: all 0.3s ease 0s;
+}
+
+.lnk:last-child:before,
+.button:last-child:before {
+    display: none;
+}
+
+.lnk:hover,
+.button:hover {
+    color: #78cc6d;
+}
+
+.lnk:hover .ion,
+.button:hove .ion {
+    color: #78cc6d;
+}
+
+.lnk:hover .arrow:before,
+.button:hover .arrow:before,
+.lnk:hover .arrow:after,
+.button:hover .arrow:after {
+    background: #78cc6d;
+}
+
+.button {
+    display: inline-block;
+    float: none;
+    width: auto;
+}
+
+a {
+    color: #626262;
+    text-decoration: none;
+    opacity: 1;
+    outline: none;
+}
+
+a:hover {
+    text-decoration: none;
+    color: #78cc6d;
+}
+
+/* lists */
+ol, 
+ul {
+    list-style: none;
+    margin-top: 0px;
+    margin-bottom: 0px;
+    padding-left: 0px;
+}
+
+ul ul,
+ul ol,
+ol ol,
+ol ul {
+    margin-bottom: 0px;
+}
+
+li {
+    margin-bottom: 0px;
+}
+
+/* code */
+code {
+    background: #d8dbe2;
+    font-size: 16px;
+    font-family: 'Poppins';
+    margin: 20px 0;
+    padding: 10px 20px;
+}
+
+/* tables */
