@@ -411,3 +411,114 @@
     }
 }
 
+/* 3. Cards */
+
+.card-inner {
+    padding: 0;
+    position: absolute;
+    overflow: hidden;
+    left: 95%;
+    top: 15px;
+    width: 120%;
+    height: 570px;
+    background: #ffffff;
+    transform-origin: center left;
+    opacity: 0;
+    visibility: hidden;
+    z-index: 8;
+    border-radius: 4px;
+    -moz-border-radius: 4px;
+    -webkit-border-radius: 4px;
+    -khtml-border-radius: 4px;
+    transition: visibility 1s linear, opacity 0.5s linear;
+    -moz-transition: visibility 1s linear, opacity 0.5s linear;
+    -webkit-transition: visibility 1s linear, opacity 0.5s linear;
+    -o-transition: visibility 1s linear, opacity 0.5s linear;
+}
+
+.card-inner.animated {
+    opacity: 1;
+    visibility: visible;
+    z-index: 9;
+}
+
+.card-inner.active {
+    opacity: 1;
+    visibility: visible;
+    z-index: 10;
+}
+
+.card-inner.hidden {
+    opacity: 0;
+    visibility: hidden;
+    z-index: 9;
+}
+
+.card-inner:before,
+.card-inner:after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 20px;
+    height: 20px;
+    background: #ffffff;
+    z-index: 10;
+}
+
+.card-inner:after {
+    top: auto;
+    bottom: 0;
+}
+
+.card-inner .card-wrap {
+    padding: 30px 30px 30px 60px;
+    position: relative;
+    overflow-x: hidden;
+    height: 100%;
+}
+
+@media (max-width: 1072px) {
+    .card-inner {
+        width: 115%;
+    }
+}
+
+@media (max-width: 1023px) {
+    .card-inner {
+        position: relative;
+        margin: 15px 0;
+        left: 0;
+        top: 0;
+        widht: auto;
+        height: auto;
+        opacity: 1;
+        visibility: visible;
+    }
+
+    .card-inner .card-wrap {
+        padding: 30px 30px 30px 40px;
+        overflow: visible;
+        height: auto;
+    }
+
+    .card-inner:last-child {
+        margin-bottom: 50px;
+    }
+}
+
+@media (max-width: 560px) {
+    .card-inner {
+        margin: 10px 0;
+    }
+
+    .card-inner .card-wrap {
+        padding: 30px;
+    }
+
+    .card-inner:last-child {
+        margin-bottom: 10px;
+    }
+}
+
+/* content */
