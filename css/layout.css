@@ -336,3 +336,78 @@
     -webkit-border-radius: 100%;
     -khtml-border-radius: 100%;
 }
+
+.card-started .profile .title {
+    margin: 0 0 10px 0;
+    font-size: 32px;
+    color: #171717;
+    line-height: 32px;
+    font-weight: 400;
+}
+
+.card-started .profile .subtitle {
+    margin: 0 0 15px 0;
+    font-size: 14px;
+    color: #78cc6d;
+    line-height: 14px;
+    font-weight: 400;
+}
+
+.card-started .profile .social a {
+    margin: 0 6px;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.card-started .profile .social a .ion, .card-started .profile .social a .fab, .card-started .profile .social a .fas {
+    font-size: 16px;
+    color: #171717;
+    transition: all 0.3s ease 0s;
+    -moz-transition: all 0.3s ease 0s;
+    -webkit-transition: all 0.3s ease 0s;
+    -o-transition: all 0.3s ease 0s;
+}
+
+.card-started .profile .social a:hover .ion, .card-started .profile .social a:hover .fab, .card-started .profile .social a:hover .fas {
+    color: #78cc6d;
+}
+
+.card-started .profile .lnk.active.discover .arrow {
+    transform: scaleX(-1);
+    -webkit-transform: scaleX(-1);
+    -moz-transform: scaleX(-1);
+    -o-transform: scaleX(-1);
+}
+
+@media (max-width: 560px) {
+    .card-started {
+        height: 480px;
+    }
+
+    .card-started:after {
+        display: none;
+    }
+
+    .card-started .profile {
+        padding: 135px 25px 25px 25px;
+    } 
+
+    .card-started .profile.no-photo {
+        padding-top: 250px;
+    }
+
+    .card-started .profile .slide {
+        height: 200px;
+    }
+
+    .card-started .profile .image {
+        margin: 0 0 15px 0;
+        width: 124px;
+    }
+
+    .card-started .profile .title {
+        font-size: 28px;
+        line-height: 28px;
+    }
+}
+
