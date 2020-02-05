@@ -1,0 +1,21 @@
+/* Blog Post */
+
+.post-box .blog-detail {
+    margin: 0 0 25px 0;
+    font-size: 13px;
+    color: #999999;
+}
+
+.post-box .blog-image {
+    margin: 0 0 25px 0;
+    font-size: 0;
+}
+
+.post-box .blog-image img {
+    width: 100%;
+}
+
+.post-box .blog-content {
+    margin: 0 0 40px 0;
+}
+
