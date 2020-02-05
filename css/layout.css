@@ -976,3 +976,190 @@
 }
 
 /* 6. Works */
+.content.works .filter-menu {
+    position: absolute;
+    top: -9px;
+    right: 0;
+}
+
+.content.works .filter-menu .f_btn {
+    margin: 0 0 0 15px;
+    padding: 0;
+    position: relative;
+    display: inline-block;
+    vertical-align: top;
+    height: 40px;
+    line-height: 40px;
+    font-size: 13px;
+    color: #626262;
+    cursor: pointer;
+    border: none;
+}
+
+.content.works .filter-menu .f_btn.active {
+    color: #78cc6d;
+}
+
+.content.works .filter-menu .f_btn label {
+    cursor: pointer;
+}
+
+.content.works .grid-items.border-line-v:after {
+    margin: 0 0 0 -1px;
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 1px;
+    height: 100%;
+    background: -moz-radial-gradient(top, ellipse cover, rgba(197, 202, 213, 0.7) 0%, rgba(255, 255, 255, 0) 70%);
+    background: -webkit-radial-gradient(top, ellipse cover, rgba(197, 202, 213, 0.7) 0%, rgba(255, 255, 255, 0) 70%);
+    background: radial-gradient(top, ellipse cover, rgba(197, 202, 213, 0.7) 0%, rgba(255, 255, 255, 0) 70%);
+}
+
+@media (max-width: 560px) {
+    .content.works .title {
+        padding: 0 0 45px 0;
+    }
+
+    .content.works .filter-menu {
+        top: 35px;
+        left: 0;
+        right: auto;
+    }
+
+    .content.works .filter-menu button {
+        margin: 0 15px 0 0;
+    }
+
+    .content.works .grid-items.border-line-v:after {
+        display: none;
+    }
+}
+
+/* 6.1 Box Items */
+.box-item {
+    position: relative;
+    overflow: hidden;
+    text-align: center;
+}
+
+.box-item .image {
+    position: relative;
+}
+
+.box-item .image a {
+    display: block;
+    font-size: 0;
+}
+
+.box-item .image a img {
+    position: relative;
+    width: 100%;
+    height: auto;
+}
+
+.box-item .image .info {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    opacity: 0;
+    text-align: center;
+    transition: all 0.3s ease 0s;
+    -moz-transition: all 0.3s ease 0s;
+    -webkit-transition: all 0.3s ease 0s;
+    -o-transition: all 0.3s ease 0s;
+}
+
+.box-item .image .info:before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background: -moz-linear-gradient(-45deg, rgba(120, 204, 109, 0.4) 0%, rgba(120, 204, 109, 0.01) 100%);
+    background: -webkit-linear-gradient(-45deg, rgba(120, 204, 109, 0.4) 0%, rgba(120, 204, 109, 0.01) 100%);
+    background: linear-gradient(135deg, rgba(120, 204, 109, 0.4) 0%, rgba(120, 204, 109, 0.01) 100%);
+    transition: all 0.3s ease 0s;
+    -moz-transition: all 0.3s ease 0s;
+    -webkit-transition: all 0.3s ease 0s;
+    -o-transition: all 0.3s ease 0s;
+}
+
+.box-item .image .info .ion, .box-item .image .info .fab, .box-item .image .info .fas {
+    margin: -16px 0 0 -16px;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 32px;
+    height: 32px;
+    font-size: 32px;
+    line-height: 32px;
+    color: #ffffff;
+    transition: all 0.1s ease-in 0.4s;
+    -moz-transition: all 0.1s ease-in 0.4s;
+    -webkit-transition: all 0.1s ease-in 0.4s;
+    -o-transition: all 0.1s ease-in 0.4s;
+}
+
+.box-item .desc {
+    padding: 15px 45px 0 45px;
+    position: relative;
+}
+
+.box-item .desc .category {
+    margin: 0;
+    font-size: 11px;
+    color: #999999;
+    font-weight: 300;
+    text-transform: uppercase;
+}
+
+.box-item .date {
+    padding: 10px 0 0 0;
+    position: absolute;
+    left: 20px;
+    bottom: 20px;
+    width: 50px;
+    height: 50px;
+    font-size: 11px;
+    line-height: 11px;
+    color: #171717;
+    text-align: center;
+    font-weight: 500;
+    text-transform: uppercase;
+    background: #ffffff;
+}
+
+.box-item .date strong {
+    display: block;
+    font-size: 20px;
+    line-height: 20px;
+    color: #171717;
+    font-weight: 700;
+}
+
+.box-item:hover .image .info {
+    opacity: 1;
+}
+
+/* 6.2 Contacts */
+.content.contacts .map {
+    margin: 0 0 20px 0;
+    height: 190px;
+}
+
+.alert-success {
+    display: none;
+}
+
+.alert-success p {
+    margin: 0;
+    font-size: 17px;
+}
+
+/* 7. Popups */
