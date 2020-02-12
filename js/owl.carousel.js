@@ -819,5 +819,287 @@
      * @protected
      * @param {Event} event - The event arguments.
      */
+    Owl.prototype.onDragMove = function(event) {
+        var minimum = null,
+            maximum = null,
+            pull = null,
+            delta = this.difference(this._drag.pointer, this.pointer(event)),
+            stage = this.difference(this._drag.stage.start, delta);
+
+        if (!this.is('dragging')) {
+            return;
+        }
+
+        event.preventDefault();
+
+        if (this.settings.loop) {
+            minimum = this.coordinates(this.minimum());
+            maximum = this.coordinates(this.maximum() + 1) - minimum;
+            stage.x = (((stage.x - minimum) % maximum + maximum) % maximum) + minimum;
+        } else {
+            minimum = this.settings.rtl ? this.coordinates(this.maximum()) : this.coordinates(this.minimum());
+            maximum = this.settings.rtl ? this.coordinates(this.minimum()) : this.coordinates(this.maximum());
+            pull = this.settings.pullDrag ? -1 * delta.x / 5 : 0;
+            stage.x = Math.max(Math.min(stage.x, minimum + pull), maximum + pull);
+        }
+
+        this._drag.stage.current = stage;
+
+        this.animate(stage.x);
+    };
+
+    /**
+     * Handles the 'touchend' and 'mouseup' events.
+     * @todo #261
+     * @todo Threshold for click event
+     * @protected
+     * @param {Event} event - The event arguments.
+     */
+    Owl.prototype.onDragEnd = function(event) {
+        var delta = this.difference(this._drag.pointer, this.pointer(event)),
+            stage = this._drag.stage.current,
+            direction = delta.x > 0 ^ this.settings.rtl ? 'left' : 'right';
+
+        $(document).off('.owl.core');
+
+        this.$element.removeClass(this.options.grabClass);
+
+        if (delta.x !== 0 && this.is('dragging') || !this.is('valid'))  {
+            this.speed(this.settings.dragEndSpeed || this.settings.smartSpeed);
+            this.current(this.closest(stage.x, delta.x !== 0 ? direction : this._drag.direction));
+            this.invalidate('position');
+            this.update();
+
+            this._drag.direction = direction;
+
+            if (Math.abs(delta.x) > 3 || new Date().getTime() - this._drag.time > 300) {
+                this._drag.target.on('click.owl.core', function() { return false; });
+            }
+        }
+
+        if (!this.is('dragging')) {
+            return;
+        }
+
+        this.leave('dragging');
+        this.trigger('dragged');
+    };
+
+    /**
+     * Gets absolute position of the closest item for a coordinate.
+     * @todo Setting 'freeDrag' makes 'closest' not reusable. See #165.
+     * @protected
+     * @param {Number} coordinate - The coordinate in pixel.
+     * @param {String} direction - The direction to check for the closest item. Either 'left' or 'right'.
+     * @returns {Number} - The absolute position of the closest item.
+     */
+    Owl.prototype.closest = function(coordinate, direction) {
+        var position = -1,
+            pull = 30,
+            width = this.width(),
+            coordinates = this.coordinates();
+
+        if (!this.settings.freeDrag) {
+            // check closest item
+            $.each(coordinates, $.proxy(function(index, value) {
+                // on a left pull, check on current index
+                if (direction === 'left' && coordinate > value - pull && coordinate < value + pull) {
+                    position = index;
+                // on a right pull, check on previous index
+                // to do so, subtratc width from value and set position = index + 1
+                } else if (direction === 'right' && coordinate > value - width - pull && coordinate < value - width + pull) {
+                    position = index + 1;
+                } else if (this.op(coordinate, '<', value)
+                    && this.op(coordinate, '>', coordinates[index + 1] !== undefined ? coordinates[index + 1] : value - width)) {
+                        position = direction === 'left' ? index + 1 : index;
+                }
+                return position === -1;
+            }, this));
+        }
+
+        if (!this.settings.loop) {
+            // non loop boundaries
+            if (this.op(coordinate, '>', coordinates[this.minimum()])) {
+                position = coordinate = this.minimum();
+            } else if (this.op(coordinate, '<', coordinates[this.maximum()])) {
+                position = coordinate = this.maximum();
+            }
+        }
+
+        return position;
+    };
+
+    /**
+     * Animates the stage.
+     * @todo #270
+     * @public
+     * @param {Number} coordinate - The coordinate in pixels.
+     */
+    Owl.prototype.animate = function(coordinate) {
+        var animate = this.speed() > 0;
+
+        this.is('animating') && this.onTransitionEnd();
+
+        if (animate) {
+            this.enter('animating');
+            this.trigger('translate');
+        }
+
+        if ($.support.transform3d && $.support.transition) {
+            this.$stage.css({
+                transform: 'translate3d(' + coordinate + 'px,0px,0px)',
+                transition: (this.speed() / 1000) + 's' + (
+                    this.settings.slideTransition ? ' ' + this.settings.slideTransition : ''
+                )
+            });
+        } else if (animate) {
+            this.$stage.animate({
+                left: coordinate + 'px'
+            }, this.speed(), this.settings.fallbackEasing, $.proxy(this.onTransitionEnd, this));
+        } else {
+            this.$stage.css({
+                left: coordinate + 'px'
+            });
+        }
+    };
+
+    /**
+     * Checks whether the carousel is in a specific state or not.
+     * @param {String} state - The state to check.
+     * @returns {Boolean} - The flag which indicates if the carousel is busy.
+     */
+    Owl.prototype.is = function(state) {
+        return this._states.current[state] && this._states.current[state] > 0;
+    };
+
+    /**
+     * Sets the absolute position of the current item.
+     * @public
+     * @param {Number} [position] - The new absolute position or nothing to leave it unchanged.
+     * @returns {Number} - The absolute position of the current item.
+     */
+    Owl.prototype.current = function(position) {
+        if (position === undefined) {
+            return this._current;
+        }
+
+        if (this._items.length === 0) {
+            return undefined;
+        }
+
+        position = this.normalize(position);
+
+        if (this._current !== position) {
+            var event = this.trigger('change', { property: { name: 'position', value: position } });
+
+            if (event.data !== undefined) {
+                position = this.normalize(event.data);
+            }
+
+            this._current = position;
+
+            this.invalidate('position');
+
+            this.trigger('changed', { property: { name: 'position', value: this._current } });
+        }
+
+        return this._current;
+    };
+
+    /**
+     * Resets the absolute position of the current item.
+     * @public
+     * @param {Number} position - The absolute position of the new item.
+     */
+    Owl.prototype.reset = function(position) {
+        position = this.normalize(position);
+
+        if (position === undefined) {
+            return;
+        }
+
+        this._speed = 0;
+        this._current = position;
+
+        this._suppress([ 'translate', 'translated' ]);
+
+        this.animate(this.coordinates(position));
+
+        this.release([ 'translate', 'translated' ]);
+    };
+
+    /**
+     * Normalizes an absolute or a relative position of an item.
+     * @public
+     * @param {Number} position - The absolute or relative position to normalize.
+     * @param {Boolean} [relative=false] - Whether the given position is relative or not.
+     * @returns {Number} - The normalized position.
+     */
+    Owl.prototype.normalize = function(position, relative) {
+        var n = this._items.length,
+            m = relative ? 0 : this._clones.length;
+
+        if (!this.isNumeric(position) || n < 1) {
+            position = undefined;
+        } else if (position < 0 || position >= n + m) {
+            position = ((position - m / 2) % n + n) % n + m / 2;
+        }
+
+        return position;
+    };
+
+    /**
+     * Converts an absolute position of an item into a relative one.
+     * @public
+     * @param {Number} position - The absolute position to convert.
+     * @returns {Number} - The converted position.
+     */
+    Owl.prototype.relative = function(position) {
+        position -= this._clones.length / 2;
+        return this.normalize(position, true);
+    };
+
+    /**
+     * Gets the maximum position for the current item.
+     * @public
+     * @param {Boolean} [relative=false] = Whether to return an absolute position or a relative position.
+     * @returns {Number}
+     */
+    Owl.prototype.maximum = function(relative) {
+        var settings = this.settings,
+            maximum = this._coordinates.length,
+            iterator,
+            reciprocalItemsWidth,
+            elementWidth;
+
+        if (settings.loop) {
+            maximum = this._clones.length / 2 + this._items.length - 1;
+        } else if (settings.autoWidth || settings.merge) {
+            iterator = this._items.length;
+            if (iterator) {
+                reciprocalItemsWidth = this._items[--iterator].width();
+                elementWidth = this.$element.width();
+                while (iterator--) {
+                    reciprocalItemsWidth += this._items[iterator].width() + this.settings.margin;
+                    if (reciprocalItemsWidth > elementWidth) {
+                        break;
+                    }
+                }
+            }
+            maximum = iterator + 1;
+        } else if (settings.center) {
+            maximum = this._items.length - 1;
+        } else {
+            maximum = this._items.length - settings.items;
+        }
+
+        if (relative) {
+            maximum -= this._clones.length / 2;
+        }
+
+        return Math.max(maximum, 0);
+    };
+
+    
 
 })
