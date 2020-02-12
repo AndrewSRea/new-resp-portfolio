@@ -1325,6 +1325,277 @@
      * @protected
      * @return {Number} - The width in pixel.
      */
+    Owl.prototype.viewport = function() {
+        var width;
+        if (this.options.responsiveBaseElement !== window) {
+            width = $(this.options.responsiveBaseElement).width();
+        } else if (window.innerWidth) {
+            width = window.innerWidth;
+        } else if (document.documentElement && document.documentElement.clientWidth) {
+            width = document.documentElement.clientWidth;
+        } else {
+            console.warn('Can not detect viewport width.');
+        }
+        return width;
+    };
+
+    /**
+     * Replaces the current content.
+     * @public
+     * @param {HTMLElement|jQuery|String} content - The new content.
+     */
+    Owl.prototype.replace = function(content) {
+        this.$stage.empty();
+        this._items = [];
+
+        if (content) {
+            content = (content instanceof jQuery) ? content : $(content);
+        }
+
+        if (this.settings.nestedItemSelector) {
+            content = content.find('.' + this.settings.nestedItemSelector);
+        }
+
+        content.filter(function() {
+            return this.nodeType === 1;
+        }).each($.proxy(function(index, item) {
+            item = this.prepare(item);
+            this.$stage.append(item);
+            this._items.push(item);
+            this._mergers.push(item.find('[data-merge]').addBack('[data-merge]').attr('data-merge') * 1 || 1);
+        }, this));
+
+        this.reset(this.isNumeric(this.settings.startPosition) ? this.settings.startPosition : 0);
+
+        this.invalidate('items');
+    };
+
+    /**
+     * Adds an item.
+     * @todo Use 'item' instead of 'content' for the event arguments.
+     * @public
+     * @param {HTMLElement|jQuery|String} content - The item content to add.
+     * @param {Number} [position] - The relative position at which to insert the item otherwise the item will be added to the end.
+     */
+    Owl.prototype.add = function(content, position) {
+        var current = this.relative(this._current);
+
+        position = position === undefined ? this._items.length : this.normalize(position, true);
+        content = content instanceof jQuery ? content : $(content);
+
+        this.trigger('add', { content: content, position: position });
+
+        content = this.prepare(content);
+
+        if (this._items.length === 0 || position === this._items.length) {
+            this._items.length === 0 && this.$stage.append(content);
+            this._items.length !== 0 && this._items[position - 1].after(content);
+            this._items.push(content);
+            this._mergers.push(content.find('[data-merge]').addBack('[data-merge]').attr('data-merge') * 1 || 1);
+        } else {
+            this._items[position].before(content);
+            this._items.splice(position, 0, content);
+            this._mergers.splice(position, 0, content.find('[data-merge]').addBack('[data-merge]').attr('data-merge') * 1 || 1);
+        }
+
+        this._items[current] && this.reset(this._items[current].index());
+
+        this.invalidate('items');
+
+        this.trigger('added', { content: content, position: position });
+    };
+
+    /**
+     * Removes an item by its position.
+     * @todo Use 'item' instead of content for the event arguments.
+     * @public
+     * @param {Number} position - The relative position of the item to remove.
+     */
+    Owl.prototype.remove = function(position) {
+        position = this.normalize(position, true);
+
+        if (position === undefined) {
+            return;
+        }
+
+        this.trigger('remove', { content: thiss._items[position], position: position });
+
+        this._items[position].remove();
+        this._items.splice(position, 1);
+        this._mergers.splice(position, 1);
+
+        this.invalidate('items');
+
+        this.trigger('removed', { content: null, position: position });
+    };
+
+    /**
+     * Preloads images with auto width.
+     * @todo Replace by a more generic approach
+     * @protected
+     */
+    Owl.prototype.preloadAutoWidthImages = function(images) {
+        images.each($.proxy(function(i, element) {
+            this.enter('pre-loading');
+            element = $(element);
+            $(new Image()).on('load', $.proxy(function(e) {
+                element.attr('src', e.target.src);
+                element.css('opacity', 1);
+                this.leave('pre-loading');
+                !this.is('pre-loading') && !this.is('initializing') && this.refresh();
+            }, this)).attr('src', element.attr('src') || element.attr('data-src') || element.attr('data-src-retina'));
+        }, this));
+    };
+
+    /**
+     * Destroys the carousel.
+     * @public
+     */
+    Owl.prototype.destroy = function() {
+        
+        this.$element.off('.owl.core');
+        this.$stage.off('.owl.core');
+        $(document).off('.owl.core');
+
+        if (this.settings.responsive !== false) {
+            window.clearTimeout(this.resizeTimer);
+            this.off(window, 'resize', this._handlers.onThrottledResize);
+        }
+
+        for (var i in this._plugins) {
+            this._plugins[i].destroy();
+        }
+
+        this.$stage.children('.cloned').remove();
+
+        this.$stage.unwrap();
+        this.$stage.children().contents().unwrap();
+        this.$stage.children().unwrap();
+        this.$stage.remove();
+        this.$element
+            .removeClass(this.options.refreshClass)
+            .removeClass(this.options.loadingClass)
+            .removeClass(this.options.loadedClass)
+            .removeClass(this.options.rtlClass)
+            .removeClass(this.options.dragClass)
+            .removeClass(this.options.grabClass)
+            .attr('class', this.$element.attr('class').replace(new RegExp(this.options.responsiveClass + '-\\S+\\s', 'g'), ''))
+            .removeData('owl.carousel');
+    };
+
+    /**
+     * Operators to calculate right-to-left and left-to-right.
+     * @protected
+     * @param {Number} [a] - The left side operand.
+     * @param {String} [o] - The operator.
+     * @param {Number} [b] - The right side operand.
+     */
+    Owl.prototype.op = function(a, o, b) {
+        var rtl = this.settings.rtl;
+        switch (o) {
+            case '<':
+                return rtl ? a > b : a < b;
+            case '>':
+                return rtl ? a < b : a > b;
+            case '>=':
+                return rtl ? a <= b : a >= b;
+            case '<=':
+                return rtl ? a >= b : a <= b;
+            default:
+                break;
+        }
+    };
+
+    /**
+     * Attaches to an internal event.
+     * @protected
+     * @param {HTMLElement} element - The event source.
+     * @param {String} event - The event name.
+     * @param {Function} listener - The attached event handler to detach.
+     * @param {Boolean} capture - Whether the attached event handler was registered as a capturing listener or not.
+     */
+    Owl.prototype.on = function(element, event, listener, capture) {
+        if (element.addEventListener) {
+            element.addEventListener(event, listener, capture);
+        } else if (element.attachEvent) {
+            element.attachEvent('on' + event, listener) ;
+        }
+    };
+
+    /**
+     * Detaches from an internal event.
+     * @protected
+     * @param {HTMLElement} element - The event source.
+     * @param {String} event - The event name.
+     * @param {Function} listener - The attached event handler to detach.
+     * @param {Boolean} capture - Whether the attached event handler was registered as a capturing listener or not.
+     */
+    Owl.prototype.off = function(element, event, listener, capture) {
+        if (element.removeEventListener) {
+            element.removeEventListener(event, listener, capture);
+        } else if (element.detachEvent) {
+            element.detachEvent('on' + event, listener) ;
+        }
+    };
+
+    /**
+     * Triggers a public event.
+     * @todo Remove 'status', 'relatedTarget' should be used instead.
+     * @protected
+     * @param {String} name - The event name.
+     * @param {*} [data=null] - The event data.
+     * @param {String} [namespace=carousel] - The event namespace.
+     * @param {String} [state] - The state which is associated with the event.
+     * @param {Boolean} [enter=false] - Indicates if the call enters the specified state or not.
+     * @returns {Event} - The event arguments.
+     */
+    Owl.prototype.trigger = function(name, data, namespace, state, enter) {
+        var status = {
+            item: { count: this._items.length, index: this.current() }
+        }, handler = $.camelCase(
+            $.grep([ 'on', name, namespace ], function(v) { return v })
+                .join('-').toLowerCase()
+        ), event = $.Event(
+            [ name, 'owl', namespace || 'carousel' ].join('.').toLowerCase(),
+            $.extend({ relatedTarget : this }, status, data)
+        );
+
+        if (!this._suppress[name]) {
+            $.each(this._plugins, function(name, plugin) {
+                if (plugin.onTrigger) {
+                    plugin.onTrigger(event);
+                }
+            });
+
+            this.register({ type: Owl.Type.Event, name: name });
+            this.$element.trigger(event);
+
+            if (this.settings && typeof this.settings[handler] === 'function') {
+                this.settings[handler].call(this, event);
+            }
+        }
+
+        return event;
+    };
+
+    /**
+     * Enters a state.
+     * @param name - The state name.
+     */
+    Owl.prototype.enter = function(name) {
+        $.each([ name ].concat(this._states.tags[name] || []), $.proxy(function(i, name) {
+            if (this._states.current[name] === undefined) {
+                this._states.current[name] = 0;
+            }
+
+            this._states.current[name]++;
+        }, this));
+    };
+
+    /**
+     * Leaves a state.
+     * @param name - The state name.
+     */
     
 
 });
