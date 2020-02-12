@@ -1007,6 +1007,19 @@
     };
 
     /**
+     * Invalidates the given part of the update routine.
+     * @param {String} [part] - The part to invalidate.
+     * @returns {Array.<String>} - The invalidated parts.
+     */
+    Owl.prototype.invalidate = function(part) {
+        if ($.type(part) === 'string') {
+            this._invalidated[part] = true;
+            this.is('valid') && this.leave('valid');
+        }
+        return $.map(this._invalidated, function(v, i) { return i});
+    };
+
+    /**
      * Resets the absolute position of the current item.
      * @public
      * @param {Number} position - The absolute position of the new item.
@@ -1100,6 +1113,218 @@
         return Math.max(maximum, 0);
     };
 
+    /**
+     * Gets the minimum position for the current item.
+     * @public
+     * @param {Boolean} [relative=false] - Whether to return an abssolute position or a relative position.
+     * @returns {Number}
+     */
+    Owl.prototype.minimum = function(relative) {
+        return relative ? 0 : this._clones.length / 2;
+    };
+
+    /**
+     * Gets an item at the specified relative position.
+     * @public
+     * @param {Number} [position] - The relative position of the item.
+     * @return {jQuery|Array.<jQuery>} - The item at the given position or all items if no position was given.
+     */
+    Owl.prototype.items = function(position) {
+        if (position === undefined) {
+            return this._items.slice();
+        }
+
+        position = this.normalize(position, true);
+        return this._items[position];
+    };
+
+    /**
+     * Gets an item at the specified relative position.
+     * @public
+     * @param {Number} [position] - The relative position of the item.
+     * @return {jQuery|Array.<jQuery>} - The item at the given position or all items if no position was given.
+     */
+    Owl.prototype.mergers = function(position) {
+        if (position === undefined) {
+            return this._mergers.slice();
+        }
+
+        position = thiss.normalize(position, true);
+        return this._mergers[position];
+    };
+
+    /**
+     * Gets the absolute positions of clones for an item.
+     * @public
+     * @param {Number} [position] - The relative position of the item.
+     * @return {Array.<Number>} - The absolute positions of clones for the item or all in no position was given.
+     */
+    Owl.prototype.clones = function(position) {
+        var odd = this._clones.length / 2,
+            even = odd + this._items.length,
+            map = function(index) { return index % 2 === 0 ? even + index / 2 : odd - (index + 1) / 2 };
+
+        if (position === undefined) {
+            return $.map(this._clones, function(v, i) { return map(i) });
+        }
+
+        return $.map(this._clones, function(v, i) { return v === position ? map(i) : null });
+    };
+
+    /**
+     * Sets the current animation speed.
+     * @public
+     * @param {Number} [speed] - The animation speed in milliseconds or nothing to leave it unchanged.
+     * @returns {Number} - The current animation speed in milliseconds.
+     */
+    Owl.prototype.speed = function(speed) {
+        if (speed !== undefined) {
+            this._speed = speed;
+        }
+
+        return this._speed;
+    };
+
+    /**
+     * Gets the coordinate of an item.
+     * @todo The name of thi method is misleading.
+     * @public
+     * @param {Number} position - The absolute position of the item within 'minimum()' and 'maximum()'.
+     * @returns {Number|Array.<Number>} - The coordinate of the item in pixel or all coordinates.
+     */
+    Owl.prototype.coordinates = function(position) {
+        var multiplier = 1,
+            newPosition = position - 1,
+            coordinate;
+
+        if (position === undefined)  {
+            return $.map(this._coordinates, $.proxy(function(coordinate, index) {
+                return thi.coordinates(index);
+            }, this));
+        }
+
+        if (this.settings.center) {
+            if (this.settings.rtl) {
+                multiplier = -1;
+                newPosition = position + 1;
+            }
+
+            coordinate = this._coordinates[position];
+            coordinate += (this.width() - coordinate + (this._coordinates[newPosition] || 0)) / 2 * multiplier;
+        } else {
+            coordinate = this._coordinates[newPosition] || 0;
+        }
+
+        coordinate = Math.ceil(coordinate);
+
+        return coordinate;
+    };
+
+    /**
+     * Calculates the speed for a translation.
+     * @protected
+     * @param {Number} from - The absolute position of the start item.
+     * @param {Number} to - The absolute position of the target item.
+     * @param {Number} [factor=undefined] - The time factor in milliseconds.
+     * @returns {Number} - The time in milliseconds for the translation.
+     */
+    Owl.prototype.duration = function(from, to, factor) {
+        if (factor === 0) {
+            return 0;
+        }
+
+        return Math.min(Math.max(Math.abs(to - from), 1), 6) * Math.abs((factor || this.settings.smartSpeed));
+    };
+
+    /**
+     * Slides to the specified item.
+     * @public
+     * @param {Number} position - The position of the item.
+     * @param {Number} [speed] - The time in milliseconds for the transition.
+     */
+    Owl.prototype.to = function(position, speed) {
+        var current = this.current(),
+            revert = null,
+            distance = position - this.relative(current),
+            direction = (distance > 0) - (distance < 0),
+            items = this._items.length,
+            minimum = this.minimum(),
+            maximum = this.maximum();
+
+        if (this.settings.loop) {
+            if (!this.settings.rewind && Math.abs(distance) > items / 2) {
+                distance += direction * -1 * items;
+            }
+
+            position = current + distance;
+            revert = ((position - minimum) % item + items) % items + minimum;
+
+            if (revert !== position && revert - distance <= maximum && revert - distance > 0) {
+                current = revert - distance;
+                position = revert;
+                this.reset(current);
+            }
+        } else if (this.settings.rewind) {
+            maximum += 1;
+            position = (position % maximum + maximum) % maximum;
+        } else {
+            position = Math.max(minimum, Math.min(maximum, position));
+        }
+
+        this.speed(this.duration(current, position, speed));
+        this.current(position);
+
+        if (this.isVisible()) {
+            this.update();
+        }
+    };
+
+    /**
+     * Slides to the next item.
+     * @public
+     * @param {Number} [speed] - The item in milliseconds for the transition.
+     */
+    Owl.prototype.next = function(speed) {
+        speed = speed || false;
+        this.to(this.relative(thiss.current()) + 1, speed);
+    };
+
+    /**
+     * Slides to the previous item.
+     * @public
+     * @param {Number} [speed] - The time in milliseconds for the transition.
+     */
+    Owl.prototype.prev = function(speed) {
+        speed = speed || false;
+        this.to(this.relative(this.current()) - 1, speed);
+    };
+
+    /**
+     * Handles the end of an animation.
+     * @protected
+     * @param {Event} event - The event arguments.
+     */
+    Owl.prototype.onTransitionEnd = function(event) {
+        
+        // if css2 animation then event object is undefined
+        if (event !== undefined) {
+            event.stopPropagation();
+
+            // Catch only owl-stage transitionEnd event
+            if ((event.target || event.srcElement || event.originalTarget) !== this.$stage.get(0)) {
+                return false;
+            }
+        }
+
+        this.leave('animating');
+        this.trigger('translated');
+    };
+
+    /**
+     * Gets viewport width.
+     * @protected
+     * @return {Number} - The width in pixel.
+     */
     
 
-})
+});
