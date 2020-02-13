@@ -2394,5 +2394,135 @@
      * Stops the current video.
      * @public
      */
+    Video .prototype.stop = function() {
+        this._core.trigger('stop', null, 'video');
+        this._playing.find('.owl-video-frame').remove();
+        this._playing.removeClass('owl-video-playing');
+        this._playing = null;
+        this._core.leave('playing');
+        this._core.trigger('stopped', null, 'video');
+    };
+
+    /**
+     * Starts the current video.
+     * @public
+     * @param {Event} event - The event arguments.
+     */
+    Video.prototype.play = function(event) {
+        var target = $(event.target),
+            item = target.closest('.' + this._core.settings.itemClass),
+            video = this._videos[item.attr('data-video')],
+            width = video.width || '100%',
+            height = video.height || this._core.$stage.height();
+            html,
+            iframe;
+
+        if (this._playing) {
+            return;
+        }
+
+        this._core.enter('playing');
+        this._core.trigger('play', null, 'video');
+
+        item = this._core.items(this._core.relative(item.index()));
+        
+        this._core.reset(item.index());
+
+        html = $( '<iframe frameborder="0" allowfullscreen mozallowfullscreen webkitAllowFullScreen ></iframe' );
+        html.attr( 'height', height );
+        html.attr( 'width', width );
+        if (video.type === 'youtube') {
+            html.attr( 'src', '//www.youtube.com/embed' + video.id + '?autoplay=1&rel=0&v=' + video.id );
+        } else if (video.type === 'vimeo') {
+            html.attr( 'src', '//player.vimeo.com/video/' + video.id + '?autoplay=1' );
+        } else if (video.type === 'vzaar') {
+            html.attr( 'src', '//view.vzaar.com/' + video.id + '/player?autoplay=true' );
+        }
+
+        iframe = $(html).wrap( '<div class="owl-video-frame" />' ).insertAfter(item.find('.owl-video'));
+
+        this._playing = item.addClass('owl-video-playing');
+    };
+
+    /**
+     * Checks whether a video is currently in full screen mode or not.
+     * @todo Bad style because looks like a read-only method but changes members.
+     * @protected
+     * @returns {Boolean}
+     */
+    Video.prototype.isInFullScreen = function() {
+        var element = document.fullscreenElement || document.mozFullScreenElement ||
+                document.webkitFullScreenElement;
+
+        return element && $(element).parent().hasClass('owl-video-frame');
+    };
+
+    /**
+     * Destroys the plugin.
+     */
+    Video.prototype.destroy = function() {
+        var handler, property;
+
+        this._core.$element.off('click.owl.video');
+
+        for (handler in this._handlers) {
+            this._core.$element.off(handler, this._handlers[handler]);
+        }
+        for (property in Object.getOwnPropertyNames(this)) {
+            typeof this[property] != 'function' && (this[property] = null);
+        }
+    };
+
+    $.fn.owlCarousel.Constructor.Plugins.Video = Video;
+
+})(window.Zepto || window.jQuery, window, document);
+
+/**
+ * Animate Plugin
+ * @version 2.3.4
+ * @author Bartosz Wojciechowski
+ * @author David Deutsch
+ * @license The MIT License (MIT)
+ */
+;(function($, window, document, undefined) {
+
+    /**
+     * Creates the animate plugin.
+     * @class The Navigation Plugin
+     * @param {Owl} - The Owl Carousel
+     */
+    var Animate = function(scope) {
+        this.core = scope;
+        this.core.options = $.extend({}, Animate.Defaults, this.core.options);
+        this.swapping = true;
+        this.previous = undefined;
+        this.next = undefined;
+
+        this.handlers = {
+            'change.owl.carousel': $.proxy(function(e) {
+                if (e.namespace && e.property.name == 'position') {
+                    this.previous = this.core.current();
+                    this.next = e.property.value;
+                }
+            }, this),
+            'drag.owl.carousel dragged.owl.carousel translated.owl.carousel': $.proxy(function(e) {
+                if (e.namespace) {
+                    this.swapping = e.type == 'translated';
+                }
+            }, this),
+            'translate.owl.carousel': $.proxy(function(e) {
+                if (e.namespace && this.swapping && (this.core.options.animateOut || this.core.options.animateIn)) {
+                    this.swap();
+                }
+            }, this)
+        };
+
+        this.core.$element.on(this.handlers);
+    };
+
+    /**
+     * Default options.
+     * @public
+     */
 
 })
