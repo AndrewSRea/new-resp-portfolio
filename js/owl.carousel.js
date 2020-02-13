@@ -1715,6 +1715,291 @@
      * @todo Navigation plugin 'next' and 'prev'.
      * @public
      */
-    
+    $.fn.owlCarousel = function(option) {
+        var args = Array.prototype.slice.call(arguments, 1);
 
-});
+        return this.each(function() {
+            var $this = $(this),
+                data = $this.data('owl.carousel');
+
+            if (!data) {
+                data = new Owl(this, typeof option == 'object' && option);
+                $this.data('owl.carousel', data);
+
+                $.each([
+                    'next', 'prev', 'to', 'destroy', 'refresh', 'replace', 'add', 'remove'
+                ], function(i, event) {
+                    data.register({ type: Owl.Type.Event, name: event });
+                    data.$element.on(event + '.owl.carousel.core', $.proxy(function(e) {
+                        if (e.namespace && e.relatedTarget !== this) {
+                            this.suppress([ event ]);
+                            data[event].apply(this, [].slice.call(arguments, 1));
+                            this.release([ event ]);
+                        }
+                    }, data));
+                });
+            }
+
+            if (typeof option == 'string' && option.charAt(0) !== '_') {
+                data[option].apply(data, args);
+            }
+        });
+    };
+
+    /**
+     * The constructor for the jQuery Plugin.
+     * @public
+     */
+    $.fn.owlCarousel.Constructor = Owl;
+    
+})(window.Zepto || window.jQuery, window, document);
+
+/**
+ * AutoRefresh Plugin
+ * @version 2.3.4
+ * @author Artus Kolanski
+ * @author David Deutsch
+ * @license The MIT License (MIT)
+ */
+;(function($, window, document, undefined) {
+
+    /**
+     * Creates the auto refresh plugin
+     * @class The Auto Refresh Plugin
+     * @param {Owl} carousel - The Owl Carousel
+     */
+    var AutoRefresh = function(carousel) {
+        /**
+         * Reference to the core.
+         * @protected
+         * @type {Owl}
+         */
+        this._core = carousel;
+
+        /**
+         * Refresh interval.
+         * @protected
+         * @type {number}
+         */
+        this._interval = null;
+
+        /**
+         * Whether the element is currently visible or not.
+         * @protected
+         * @type {Boolean}
+         */
+        this._visible = null;
+
+        /** 
+         * All event handlers.
+         * @protected
+         * @type {Object}
+        */
+        this._handlers = {
+            'initialized.owl.carousel': $.proxy(function(e) {
+                if (e.namespace && this._core.settings.autoRefresh) {
+                    this.watch();
+                }
+            }, this)
+        };
+
+        // set default options
+        this._core.options = $.extend({}, AutoRefresh.Defaults, this._core.options);
+
+        // register event handlers 
+        this._core.$element.on(this._handlers);
+    };
+
+    /**
+     * Deafult options.
+     * @public
+     */
+    AutoRefresh.Defaults = {
+        autoRefresh: true,
+        autoRefreshInterval: 500
+    };
+
+    /**
+     * Watches the element.
+     */
+    AutoRefresh.prototype.watch = function() {
+        if (this._interval) {
+            return;
+        }
+
+        this._visible = this._core.isVisible();
+        this._interval = window.setInterval($.proxy(this.refresh, this), this._core.settings.autoRefreshInterval);
+    };
+
+    /**
+     * Refreshes the element.
+     */
+    AutoRefresh.prototype.refresh = function() {
+        if (this._core.isVisible() === this._visible) {
+            return;
+        }
+
+        this._visible = !this._visible;
+
+        this._core.$element.toggleClass('owl-hidden', !this._visible);
+
+        this._visible && (this._core.invalidate('width') && this._core.refresh());
+    };
+
+    /**
+     * Destroys the plugin.
+     */
+    AutoRefresh.prototype.destroy = function() {
+        var handler, property;
+
+        window.clearInterval(this._interval);
+
+        for (handler in this._handlers) {
+            this._core.$element.off(handler, this._handlers[handler]);
+        }
+        for (property in Object.getOwnPropertyNames(this)) {
+            typeof this[property] != 'function' && (this[property] = null);
+        }
+    };
+
+    $.fn.owlCarousel.Constructor.Plugins.AutoRefresh = AutoRefresh;
+
+})(window.Zepto || window.jQuery, window, document);
+
+/**
+ * Lazy Plugin
+ * @version 2.3.4
+ * @author Bartosz Wojciechowski
+ * @author David Deutsch
+ * @license The MIT License (MIT)
+ */
+;(function($, window, document, undefined) {
+
+    /**
+     * Creates the lazy plugin.
+     * @class The Lazy Plugin.
+     * @param {Owl} carousel - The Owl Carousel
+     */
+    var Lazy = function(carousel) {
+
+        /**
+         * Reference to the core.
+         * @protected
+         * @type {Owl}
+         */
+        this._core = carousel;
+
+        /**
+         * Already loaded items.
+         * @protected
+         * @type {Array.<jQuery>}
+         */
+        this._loaded = [];
+
+        /**
+         * Event handlers.
+         * @protected
+         * @type {Object}
+         */
+        this._handlers = {
+            'initialized.owl.carousel change.owl.carousel resized.owl.carousel': $.proxy(function(e) {
+                if (!e.namespace) {
+                    return;
+                }
+
+                if (!this._core.settings || !this._core.settings.lazyLoad) {
+                    return;
+                }
+
+                if ((e.property && e.property.name === 'position') || e.type == 'initialized') {
+                    var settings = this._core.settings,
+                        n = (settings.center && Math.ceil(settings.items / 2) || settings.items),
+                        i = ((settings.center && n * -1) || 0),
+                        position = (e.property && e.property.value !== undefined ? e.property.value : this._core.current()) + i,
+                        clones = this._core.clones().length,
+                        load = $.proxy(function(i, v) { this.load(v) }, this);
+                    // TODO: Need documentation for this new option
+                    if (settings.lazyLoadEager > 0) {
+                        n += settings.lazyLoadEager;
+                        // If the carousel is looping also preload images that are to the "left"
+                        if (settings.loop) {
+                            position -= settings.lazyLoadEager;
+                            n++;
+                        }
+                    }
+
+                    while (i++ < n) {
+                        this.load(clones / 2 + this._core.relative(position));
+                        clones && $.each(this._core.clones(this._core.realtive(postions)), load);
+                        position++;
+                    }
+                }
+            }, this)
+        };
+
+        // set the default options
+        this._core.options = $.extend({}, Lazy.Defaults, this._core.options);
+
+        // register event handler
+        this._core.$element.on(this._handlers);
+    };
+
+    /**
+     * Default options.
+     * @public
+     */
+    Lazy.Defaults = {
+        lazyLoad: false,
+        lazyLoadEager: 0
+    };
+
+    /**
+     * Loads all resources of an item at the specified position.
+     * @param {Number} position - The absolute position of the item.
+     * @protected
+     */
+    Lazy.prototype.load = function(position) {
+        var $item = this._core.$stage.children().eq(position),
+            $elements = $item && $item.find('.owl-lazy');
+
+        if (!$elements || $inArray($item.get(0), this._loaded) > -1) {
+            return;
+        }
+
+        $elements.each($.proxy(function(index, element) {
+            var $element = $(element), image,
+                url = (window.devicePixelRatio > 1 && $element.attr('data-src-retina')) || $element.attr('data-src') || $element.attr('data-srcset');
+
+            this._core.trigger('load', { element: $element, url: url }, 'lazy');
+
+            if ($element.is('img')) {
+                $element.on('load.owl.lazy', $.proxy(function() {
+                    $element.css('opacity', 1);
+                    this._core.trigger('loaded', { element: $element, url: url }, 'lazy');
+                }, this)).attr('src', url);
+            } else if ($element.is('source')) {
+                $element.on('load.owl.lazy', $.proxy(function() {
+                    this._core.trigger('loaded', { element: $element, url: url }, 'lazy');
+                }, this)).attr('srcset', url);
+            } else {
+                image = new Image();
+                image.onload = $.proxy(function() {
+                    $element.css({
+                        'background-image': 'url("' + url + '")',
+                        'opacity': '1'
+                    });
+                    this._core.trigger('loaded', { element: $element, url: url }, 'lazy');
+                }, this);
+                image.src = url;
+            }
+        }, this));
+
+        this._loaded.push($item.get(0));
+    };
+
+    /**
+     * Destroys the plugin.
+     * @public
+     */
+
+})
