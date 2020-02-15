@@ -3031,19 +3031,6 @@
             this.to(index, settings.dotsSpeed);
         }, this));
 
-        /*
-        block
-        block
-        block
-        block
-        block
-        block
-        block
-        block
-        block
-        block
-        */
-
         // override public methods of the carousel
         for (override in this._overrides) {
             this.core[override] = $.proxy(this[override], this);
