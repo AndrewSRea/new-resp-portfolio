@@ -391,7 +391,7 @@
 
             if (grid && cache.items.merge) {
                 while (iterator--) {
-                    cache.css.width = this._widths[this.realtive(iterator)];
+                    cache.css.width = this._widths[this.relative(iterator)];
                     items.eq(iterator).css(cache.css);
                 }
             } else if (grid) {
@@ -1930,7 +1930,7 @@
 
                     while (i++ < n) {
                         this.load(clones / 2 + this._core.relative(position));
-                        clones && $.each(this._core.clones(this._core.realtive(postions)), load);
+                        clones && $.each(this._core.clones(this._core.relative(positions)), load);
                         position++;
                     }
                 }
@@ -3117,7 +3117,132 @@
      * @todo The option 'dotsData' won't work.
      * @protected
      */
+    Navigation.prototype.draw = function() {
+        var difference,
+            settings = this._core.settings,
+            disabled = this._core.items().length <= settings.items,
+            index = this._core.relative(this._core.current()),
+            loop = settings.loop || settings.rewind;
 
+        this._controls.$relative.toggleClass('disabled', !settings.nav || disabled);
+
+        if (settings.nav) {
+            this._controls.$previous.toggleClass('disabled', !loop && index <= this._core.minimum(true));
+            this._controls.$next.toggleClass('disabled', !loop && index >= this._core.maximum(true));
+        }
+
+        this._controls.$absolute.toggleClass('disabled', !settings.dots || disabled);
+
+        if (settings.dots) {
+            difference = this._pages.length - this._controls.$absolute.children().length;
+
+            if (settings.dotsData && difference !== 0) {
+                this._controls.$absolute.html(this._templates.join(''));
+            } else if (difference > 0) {
+                this._controls.$absolute.append(new Array(difference + 1).join(this._templates[0]));
+            } else if (difference < 0) {
+                this._controls.$absolute.children().slice(difference).remove();
+            }
+
+            this._controls.$absolute.find('.active').removeClass('active');
+            this._controls.$absolute.children().eq($.inArray(this.current(), this._pages)).addClass('active');
+        }
+    };
+
+    /**
+     * Extends event data.
+     * @protected
+     * @param {Event} event - The event object which gets thrown.
+     */
+    Navigation.prototype.onTrigger = function(event) {
+        var settings = this._core.settings;
+
+        event.page = {
+            index: $.inArray(this.current(), this._pages),
+            count: this._pages.length,
+            size: settings && (settings.center || settings.autoWidth || settings.dotsData
+                ? 1 : settings.dotsEach || settings.items)
+        };
+    };
+
+    /** 
+     * Gets the current page position of the carousel.
+     * @protected
+     * @returns {Number}
+     */
+    Navigation.prototype.current = function() {
+        var current = this._core.relative(this._core.current());
+        return $.grep(this._pages, $.proxy(function(page, index) {
+            return page.start <= current && page.end >= current;
+        }, this)).pop();
+    };
+
+    /**
+     * Gets the current successor/predecessor position.
+     * @protected
+     * @returns {Number}
+     */
+    Navigation.prototype.getPosition = function(successor) {
+        var position, length,
+            settings = this._core.settings;
+
+        if (settings.slideBy == 'page') {
+            position = $.inArray(this.current(), this._pages);
+            length = this._pages.length;
+            successor ? ++position : --position;
+            position = this._pages[((position % length) + length) % length].start;
+        } else {
+            position = this._core.relative(this._core.current());
+            length = this._core.items().length;
+            successor ? position += settings.slideBy : position -= settings.slideBy;
+        }
+
+        return position;
+    };
+
+    /**
+     * Slides to the next item or page.
+     * @public
+     * @param {Number} [speed=false] - The time in milliseconds for the transition.
+     */
+    Navigation.prototype.prev = function(speed) {
+        $.proxy(this._overrides.to, this._core)(this.getPosition(false), speed);
+    };
+
+    /**
+     * Slides to the specified item or page.
+     * @public
+     * @param {Number} position - The position of the item or page.
+     * @param {Number} [speed] - The time in milliseconds for the transition.
+     * @param {Boolean} [standard=false] - Whether to use the standard behavior or not.
+     */
+    Navigation.prototype.to = function(position, speed, standard) {
+        var length;
+
+        if (!standard && this._pages.length) {
+            length = this._pages.length;
+            $.proxy(this.overrides.to, this._core)(this._pages[((position % length) + length) % length].start, speed);
+        } else {
+            $.proxy(this._overrides.to, this._core)(position, speed);
+        }
+    };
+
+    $.fn.owlCarousel.Constructor.Plugins.Navigation = Navigation;
+
+})(window.Zepto || window.jQuery, window, document);
+
+/**
+ * Hash Plugin
+ * @version 2.3.4
+ * @author Artus Kolanowski
+ * @author David Deutsch
+ * @license The MIT License (MIT)
+ */
+;(function($, window, document, undefined) {
+    'use strict';
+
+    /**
+     * 
+     */
 
 })
-
