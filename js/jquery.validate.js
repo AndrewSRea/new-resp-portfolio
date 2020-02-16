@@ -540,7 +540,7 @@ $.extend($.validator, {
         // https://jqueryvalidation.org/Validator.resetForm/
         resetForm: function() {
             if ($.fn.resetForm) {
-                $(thiss.currentForm).resetForm();
+                $(this.currentForm).resetForm();
             }
             this.invalid = {};
             this.submitted = {};
@@ -887,7 +887,7 @@ $.extend($.validator, {
         },
 
         addWrapper: function(toToggle) {
-            if (thiss.settings.wrapper) {
+            if (this.settings.wrapper) {
                 toToggle = toToggle.add(toToggle.parent(this.settings.wrapper));
             }
             return toToggle;
@@ -898,7 +898,7 @@ $.extend($.validator, {
             for (i = 0; this.errorList[i]; i++) {
                 error = this.errorList[i];
                 if (this.settings.highlight) {
-                    thiss.settings.highlight.call(this, error.element, this.settings.errorClass, this.settings.validClass);
+                    this.settings.highlight.call(this, error.element, this.settings.errorClass, this.settings.validClass);
                 }
                 this.showLabel(error.element, error.message);
             }
@@ -919,6 +919,146 @@ $.extend($.validator, {
             this.hideErrors();
             this.addWrapper(this.toShow).show();
         },
+
+        validElements: function() {
+            return this.currentElements.not(this.invalidElements());
+        },
+
+        invalidElements: function() {
+            return $(this.errorList).map(function() {
+                return this.element;
+            });
+        },
+
+        showLabel: function(element, message) {
+            var place, group, errorID, v,
+                error = this.errorsFor(element),
+                elementID = this.idOrName(element),
+                describedBy = $(element).attr('aria-describedby');
+
+            if (error.length) {
+
+                // Refresh error/success class
+                error.removeClass(this.settings.validClass).addClass(this.settings.errorClass);
+
+                // Replace message on existing label
+                error.html(message);
+            } else {
+
+                // Create error element
+                error = $('<' + this.settings.errorElement + '>')
+                    .attr('id', elementID + '-error')
+                    .addClass(this.settings.errorClass)
+                    .html(message || '');
+
+                // Maintain reference to the element to be placed into the DOM
+                place = error;
+                if (this.settings.wrapper) {
+
+                    // Make sure the element is visible, even in IE
+                    // actually showing the wrapped element is handled elsewhere
+                    place = error.hide().show().wrap('<' + this.settings .wrapper + '/>').parent();
+                }
+                if (this.labelContainer.length) {
+                    this.labelContainer.append(place);
+                } else if (this.settings.errorPlacement) {
+                    this.settings.errorPlacement.call(this, place, $(element));
+                } else {
+                    place.insertAfter(element);
+                }
+
+                // Link error back to the element
+                if (error.is('label')) {
+
+                    // If the error is a label, then associate using 'for'
+                    error.attr('for', elementID);
+
+                    // If the element is not a child of an associated label, then it's necessary
+                    // to explicitly apply aria-describedby
+                } else if (error.parents('label[for="' + this.escapeCssMeta(elementID) + '"]').length === 0) {
+                    errorID = error.attr('id');
+
+                    // Respect existing non-error aria-describedby
+                    if (!describedBy) {
+                        describedby = errorID;
+                    } else if (!describedBy.match(new RegExp('\\b' + this.escapeCssMeta(errorID) + '\\b'))) {
+
+                        // Add to end of list if not already present
+                        describedBy += ' ' + errorID;
+                    }
+                    $(element).attr('aria-describedby', describedBy);
+
+                    // If the element is grouped, then assign to all elements in the same group
+                    group = this.groups[element.name];
+                    if (group) {
+                        v = this;
+                        $.each(v.groups, function(name, testgroup) {
+                            if (testgroup === group) {
+                                $('[name="' + v.escapeCssMeta(name) + '"]', v.currentForm)
+                                    .attr('aria-describedby', error.attr('id'));
+                            }
+                        });
+                    }
+                }
+            }
+            if (!message && this.settings.success) {
+                error.text('');
+                if (typeof this.settings.success === 'string') {
+                    error.addClass(this.settings.success);
+                } else {
+                    this.settings.success(error, element);
+                }
+            }
+            this.toShow = this.toShow.add(error);
+        },
+
+        errorsFor: function(element) {
+            var name = this.escapeCssMeta(this.ifOrName(element)),
+                describer = $(element).attr('aria-describedby'),
+                selector = 'label[for="' + name + '"], label[for="' + name + '"] *';
+
+            // 'aria-describedby' should directly reference the error element
+            if (describer) {
+                selector = selector + ', #' + this.escapeCssMeta(describer)
+                    .replace(/\s+/g, ', #');
+            }
+
+            return this
+                .errors()
+                .filter(selector);
+        },
+
+        // See https://api.jquery.com/category/selectors/, for CSS
+        // meta-characters that should be escaped in order to be used with jQuery
+        // as a literal part of a name/id or any selector
+        escapeCssMeta: function(string) {
+            return string.replace(/([\\!"#$%&'()*+,./:;<=>?@\[\]^`{|}~])/g, "\\$1");
+        },
+
+        idOrName: function(element) {
+            return this.groups[element.name] || (this.checkable(element) ? element.name : element.id || element.name);
+        },
+
+        validationTargetFor: function(element) {
+
+            // If radio/checkbox, validate first element in group instead
+            if (this.checkable(element)) {
+                element = this.findByName(element.name);
+            }
+
+            // Always apply ignore filter
+            return $(element).not(this.settings.ignore)[0];
+        },
+
+        checkable: function (element) {
+            return (/radio|checkbox/i).test(element.type);
+        },
+
+        findByName: function(name) {
+            return $(this.currentForm).find('[name="' + this.escapeCssMeta(name) + '"]');
+        },
+
+        
         
 
     }

@@ -1149,7 +1149,7 @@
             return this._mergers.slice();
         }
 
-        position = thiss.normalize(position, true);
+        position = this.normalize(position, true);
         return this._mergers[position];
     };
 
@@ -1286,7 +1286,7 @@
      */
     Owl.prototype.next = function(speed) {
         speed = speed || false;
-        this.to(this.relative(thiss.current()) + 1, speed);
+        this.to(this.relative(this.current()) + 1, speed);
     };
 
     /**
@@ -1418,7 +1418,7 @@
             return;
         }
 
-        this.trigger('remove', { content: thiss._items[position], position: position });
+        this.trigger('remove', { content: this._items[position], position: position });
 
         this._items[position].remove();
         this._items.splice(position, 1);
@@ -2612,7 +2612,7 @@
 
     /**
      * Creates the autoplay plugin.
-     * @classs The Autoplay Plugin
+     * @class The Autoplay Plugin
      * @param {Owl} scope - The Owl Carousel
      */
     var Autoplay = function(carousel) {
