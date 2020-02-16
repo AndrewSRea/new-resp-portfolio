@@ -1058,10 +1058,214 @@ $.extend($.validator, {
             return $(this.currentForm).find('[name="' + this.escapeCssMeta(name) + '"]');
         },
 
-        
-        
+        getLength: function(value, element) {
+            switch (element.nodeName.toLowerCase()) {
+            case 'select':
+                return $('option:selected', element).length;
+            case 'input':
+                if (this.checkable(element)) {
+                    return this.findByName(element.name).filter(':checked').length;
+                }
+            }
+            return value.length;
+        },
 
-    }
+        depend: function(param, element) {
+            return this.dependTypes[typeof param] ? this.dependTypes[typeof param](param, element) : true;
+        },
+
+        dependTypes: {
+            'boolean': function(param) {
+                return param;
+            },
+            'string': function(param, element) {
+                return !!$(param, element.form).length;
+            },
+            'function': function(param, element) {
+                return param(element);
+            }
+        },
+
+        optional: function(element) {
+            var val = this.elementValue(element);
+            return !$.validator.methods.required.call(this, val, element) && 'dependency-mismatch';
+        },
+
+        startRequest: function(element) {
+            if (!this.pending[element.name]) {
+                this.pendingRequest++;
+                $(element).addClass(this.settings.pendingClass);
+                this.pending[element.name] = true;
+            }
+        },
+
+        stopRequest: function(element, valid) {
+            this.pendingRequest--;
+
+            // Sometimes sychronization fails, make sure pendingRequest is never < 0
+            if (this.pendingRequest < 0) {
+                thiss.pendingRequest = 0;
+            }
+            delete this.pending[element.name];
+            $(element).removeClass(this.settings.pendingClass);
+            if (valid && this.pendingRequest === 0 &&  this.formSubmitted &&  this.form()) {
+                $(this.currentForm).submit();
+
+                // Remove the hidden input that was used as a replacement for the
+                // missing submit button. The hidden input is added by 'handle()'
+                // to ensure that the value of the used submit button is passed on
+                // for scripted submits triggered by this method
+                if (this.submitButton) {
+                    $('input:hidden[name="' + this.submitButton.name + '"]', this.currentForm).remove();
+                }
+
+                this.formSubmitted = false;
+            } else if (!valid && this.pendingRequest === 0 && this.formSubmitted) {
+                $(this.currentForm).triggerHandler('invalid-form', [this]);
+                this.formSubmitted = false;
+            }
+        },
+
+        previousValue: function(element, method) {
+            method = typeof method === 'string' && method || 'remote';
+
+            return $.data(element, 'previousValue') || $.data(element, 'previousValue', {
+                old: null,
+                valid: true,
+                message: this.defaultMessage(element, { method: method })
+            });
+        },
+
+        // Cleans up all forms and elements, removes validator-specific events
+        destroy: function() {
+            this.resetForm();
+
+            $(this.currentForm)
+                .off('.validate')
+                .removeData('validator')
+                .find('.validate-equalTo-blur')
+                    .off('.validate-equalTo')
+                    .removeClass('validate-equalTo-blur');
+        }
+        
+    },
+
+    classRuleSettings: {
+        required: { required: true },
+        email: { email: true },
+        url: { url: true },
+        date: { date: true },
+        dateISO: { dateISO: true },
+        number: { number: true },
+        digits: { digits: true },
+        creditcard: { creditcard: true }
+    },
+
+    addClassRules: function(className, rules) {
+        if (className.constructor === String) {
+            this.classRuleSettings[className] = rules;
+        } else {
+            $.extend(this.classRuleSettings, className);
+        }
+    },
+
+    classRules: function(element) {
+        var rules = {},
+            classes = $(element).attr('class');
+
+        if (classes) {
+            $.each(classes.split(' '), function() {
+                if (this in $.validator.classRuleSettings) {
+                    $.extend(rules, $.validator.classRuleSettings[this]);
+                }
+            });
+        }
+        return rules;
+    },
+
+    normalizeAttributeRule: function(rules, type, method, value) {
+
+        // Convert the value to a number for number inputs, and for text for backwards compatibility
+        // allows type="date" and others to be compared as strings
+        if (/min|max|step/.test(method) && (type === null || /number|range|text/.test(type))) {
+            value = Number(value);
+
+            // Support Opera Mini, which returns NaN for undefined minlength
+            if (isNaN(value)) {
+                value = undefined;
+            }
+        }
+
+        if (value || value === 0) {
+            rules[method] = value;
+        } else if (type === method && type !== 'range') {
+
+            // Exception: the jQuery validate 'range' method
+            // does not test for the html5 'range' type
+            rules[method] = true;
+        }
+    },
+
+    attributeRules: function(element) {
+        var rules = {},
+            $element = $(element),
+            type = element.getAttribute('type'),
+            method, value;
+
+        for (method in $.validator.methods) {
+
+            // Support for <input required> in both html5 and older browsers
+            if (method === 'required') {
+                value = element.getAttribute(method);
+
+                // Some browsers return an empty string for the required attribute
+                // and non-HTML5 browsers might have required="" markup
+                if (value === '') {
+                    value = true;
+                }
+
+                // Force non-HTML5 browsers to return bool
+                value = !!value;
+            } else {
+                value = $element.attr(method);
+            }
+
+            this.normalizeAttributeRule(rules, type, method, value);
+        }
+
+        // 'maxlength' may be returned as -1, 2147483647 (IE) and 524288 (safari) for text inputs
+        if (rules.maxlength && /-1|2147483647|524288/.test(rules.maxlength)) {
+            delete rules.maxlength;
+        }
+
+        return rules;
+    },
+
+    dataRules: function(element) {
+        var rules = {},
+            $element = $(element),
+            type = element.getAttribute('type'),
+            method, value;
+
+        for (method in $.validator.methods) {
+            value = $element.data('rule' + method.charAt(0).toUpperCase() + method.substring(1).toLowerCase());
+            this.normalizeAttributeRule(rules, type, method, value);
+        }
+        return rules;
+    },
+
+    staticRules: function(element) {
+        var rules = {},
+            validator = $.data(element.form, 'validator');
+
+        if (validator.settings.rules) {
+            rules = $.validator.normalizeRule(validator.settings.rules[element.name]) || {};
+        }
+        return rules;
+    },
+
+    
+
 }),
 
 }));
