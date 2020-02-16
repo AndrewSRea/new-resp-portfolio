@@ -1435,8 +1435,170 @@ $.extend($.validator, {
             return this.optional(element) || (length >= param[0] && length <= param[1]);
         },
 
+        // https://jqueryvalidation.org/min-method/
+        min: function(value, element, param) {
+            return this.optional(element) || value >= param;
+        },
+
+        // https://jqueryvalidation.org/max-method/
+        max: function(value, element, param) {
+            return this.optional(element) || value <= param;
+        },
+
+        // https://jqueryvalidation.org/range-method/
+        range: function(value, element, param) {
+            return this.optional(element) || value >= param[0] && value <= param[1];
+        },
+
+        // https://jqueryvalidation.org/step-method/
+        step: function(value, element, param) {
+            var type = $(element).attr('type'),
+                errorMessage = 'Step attribute on input type ' + type + ' is not supported.',
+                supportedTypes = ['text', 'number', 'range'],
+                re = new RegExp('\\b' + type + '\\b'),
+                notSupported = type && !re.test(supportedTypes.join()),
+                decimalPlaces = function(num) {
+                    var match = ('' + num).match(/(?:\.(\d+))?$/);
+                    if (!match) {
+                        return 0;
+                    }
+
+                    // Number of digits right of decimal point.
+                    return match[1] ? match[1].length : 0;
+                },
+                toInt = function(num) {
+                    return Math.round(num * Math.pow(10, decimals));
+                },
+                valid = true;
+                decimals;
+
+            // Works only for text, number and range input types
+            // TODO find a way to support input types date, datetime, datime-local, month, time and week
+            if (notSupported) {
+                throw new Error(errorMessage);
+            }
+
+            decimals = deciamlPlaces(param);
+
+            // Value can't have too many decimals
+            if (decimalPlaces(value) > decimals || toInt(value) % toInt(param) !== 0) {
+                valie = false;
+            }
+
+            return this.optional(element) || valid;
+        },
+
+        // https://jqueryvalidation.org/equalTo-method/
+        equalTo: function(value, element, param) {
+
+            // Bind to the blur event of the target in order to revalidate whenever the target field is updated
+            var target = $(param);
+            if (this.settings.onfocusout && target.not('.validate-equalTo-blur').length) {
+                target.addClass('validate-equalTo-blur').on('blur.validate-equalTo', function() {
+                    $(element).valid();
+                });
+            }
+            return value === target.val();
+        },
+
+        // https://jqueryvalidation.org/remote-method/
+        remote: function(value, element, param, method) {
+            if (this.optional(element)) {
+                return 'dependency-mismatch';
+            }
+
+            method = typeof method === 'string' && method || 'remote';
+            
+            var previous = this.previousValue(element, method),
+                validator, data, optionDataString;
+
+            if (!this.settings.messages[element.name]) {
+                this.settings.messages[element.name] = {};
+            }
+            previous.originalMessage = previous.originalMessage || this.settings.messages[element.name][method];
+            this.settings.messages[element.name][method] = previous.message;
+
+            param = typeof param === 'string' && { url: param } || param;
+            optionDataString = $.param($.extend({ data: value }, param.data));
+            if (previous.old === optionDataString) {
+                return previous.valid;
+            }
+
+            previous.old = optionDataString;
+            validator = this;
+            this.startRequest(element);
+            data = {};
+            data[element.name] = value;
+            $.ajax($.extend(true, {
+                mode: 'abort',
+                port: 'validate' + element.name,
+                dataType: 'json',
+                data: data,
+                context: validator.currentForm,
+                success: function(response) {
+                    var valid = response === true || response === 'true',
+                        errors, message, submitted;
+
+                    validator.settings.messages[element.name][method] = previous.originalMessage;
+                    if ( valid) {
+                        submitted = validator.formSubmitted;
+                        validator,resetInternals();
+                        validator.toHide = validator.errorsFor(element);
+                        validator.formSubmitted = submitted;
+                        validator.successList.push(element);
+                        validator.invalid[element.name] = false;
+                        validator.showErrors(errors);
+                    } else {
+                        errors = {};
+                        message = response || validator.defaultMessage(element, { method: method, parameters: value });
+                        errors[element.name] = previous.message = message;
+                        validator.invalid[element.name] = true;
+                        validator.showErrors(errors);
+                    }
+                    previous.valid = valid;
+                    validator.stopRequest(element, valid);
+                }
+            }, param));
+            return 'pending';
+        }
     }
 
-}),
+});
 
+// Ajax mode: abort
+// usage: $.ajax({ mode: "abort"[, port: "uniqueport"]});
+// if mode:"abort" is used, the previous request on that port (port can be undefined) is aborted via XMLHttpRequest.abort()
+
+var pendingRequests = {},
+    ajax;
+
+// Use a prefilter if available (1.5+)
+if ($.ajaxPrefilter) {
+    $.ajaxPrefilter(function(settings, _, xhr) {
+        var port = settings.port;
+        if (settings.mode == 'abort') {
+            if (pendingRequests[port]) {
+                pendingRequests[port].abort();
+            }
+            pendingRequests[port] = xhr;
+        }
+    });
+} else {
+
+    // Proxy ajax
+    ajax = $.ajax;
+    $.ajax = function(settings) {
+        var mode = ('mode' in settings ? settings : $.ajaxSettings).mode,
+            port = ('port' in settings ? settings : $.ajaxSettings).port;
+        if (mode === 'abort') {
+            if (pendingRequests[port]) {
+                pendingRequests[port].abort();
+            }
+            pendingRequests[port] = ajax.apply(this. arguments);
+            return pendingRequests[port];
+        }
+        return ajax.apply(this, arguments);
+    };
+}
+return $;
 }));
