@@ -58,7 +58,7 @@
             mfp.ev.on(NS + name + EVENT_NS, f);
         },
         _getEl = function(className, appendTo, html, raw) {
-            val el = document.createElement('div');
+            var el = document.createElement('div');
             el.className = 'mfp-' + className;
             if (html) {
                 el.innerHTML = html;
@@ -1689,11 +1689,118 @@
                             mfp.next();
                         });
 
-                        
+                        mfp.container.append(arrowLeft.add(arrowRight));
                     }
-                })
+                });
+
+                _mfpOn(CHANGE_EVENT + ns, function() {
+                    if (mfp._preloadTimeout) {
+                        clearTimeout(mfp._preloadTimeout);
+                    }
+
+                    mfp._preloadTimeout = setTimeout(function() {
+                        mfp.preloadNearbyImages();
+                        mfp._preloadTimeout = null;
+                    }, 16);
+                });
+
+            },
+            next: function() {
+                mfp.direction = true;
+                mfp.index = _getLoopedId(mfp.index + 1);
+                mfp.updateItemHTML();
+            },
+            prev: function() {
+                mfp.direction = false;
+                mfp.index = _getLoopedId(mfp.index - 1);
+                mfp.updateItemHTML();
+            },
+            goTo: function(newIndex) {
+                mfp.direction = (newIndex >= mfp.index);
+                mfp.index = newIndex;
+                mfp.updateItemHTML();
+            },
+            preloadNearbyImages: function() {
+                var p = mfp.st.gallery.preload,
+                    preloadBefore = Math.min(p[0], mfp.items.length),
+                    preloadAfter = Math.min(p[1], mfp.items.length),
+                    i;
+
+                for (i = 1; i <= (mfp.direction ? preloadAfter : preloadBefore); i++) {
+                    mfp._preloadItem(mfp.index + i);
+                }
+                for (i = 1; i <= (mfp.direction ? preloadBefore : preloadAfter); i++) {
+                    mfp._preloadItem(mfp.index - i);
+                }
+            },
+            _preloadItem: function(index) {
+                index = _getLoopedId(index);
+
+                if (mfp.items[index].preloaded) {
+                    return;
+                }
+
+                var item = mfp.items[index];
+                if (!item.parsed) {
+                    item = mfp.parseEl(index);
+                }
+
+                _mfpTrigger('LazyLoad', item);
+
+                if (item.type === 'image') {
+                    item.img = $('<img class="mfp-img" />').on('load.mfploader', function() {
+                        item.hasSize = true;
+                    }).on('error.mfploader', function() {
+                        item.hasSize = true;
+                        item.loadError = true;
+                        _mfpTrigger('LazyLoadError', item);
+                    }).attr('src', item.src);
+                }
+
+                item.preloaded = true;
             }
         }
-    })
+    });
 
-}))
+    /*>>gallery*/
+
+    /*>>retina*/
+
+    var RETINA_NS = 'retina';
+
+    $.magnificPopup.registerModule(RETINA_NS, {
+        options: {
+            replaceSrc: function(item) {
+                return item.src.replace(/\.\w+$/, function(m) {
+                    return '@2x' + m;
+                });
+            },
+            ratio: 1 // Function or number. Set to 1 to disable.
+        },
+        proto: {
+            initRetina: function() {
+                if (window.devicePizelRatio > 1) {
+
+                    var st = mfp.st.retina,
+                        ratio = st.ratio;
+
+                    ratio = !isNaN(ratio) ? ratio : ratio();
+
+                    if (ratio > 1) {
+                        _mfpOn('ImageHasSize' + '.' + RETINA_NS, function(e, item) {
+                            item.img.css({
+                                'max-width': item.img[0].naturalWidth / ratio,
+                                'width': '100%'
+                            });
+                        });
+                        _mfpOn('ElementParse' + '.' + RETINA_NS, function(e, item) {
+                            item.src = st.replaceSrc(item, ratio);
+                        });
+                    }
+                }
+            }
+        }
+    });
+
+/*>>retina*/
+_checkInstance(); }));
