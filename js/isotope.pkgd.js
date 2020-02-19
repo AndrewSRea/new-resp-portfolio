@@ -1317,3 +1317,474 @@ proto.destroy = function(){
 return Item;
 
 }));
+
+/*!
+ * Outlayer v2.1.1
+ * Layout library
+ * MIT license
+ */
+
+(function(window, factory) {
+    'use strict';
+    // universal module definition
+    /* jshint strict: false */ /* globals define, module, require */
+    if (typeof define == 'function' && define.amd)  {
+        // AMD - RequireJS
+        define('outlayer/outlayer', [
+                'ev-emitter/ev-emitter',
+                'get-size/get-size',
+                'fizzy-ui-utils/utils',
+                './item'
+            ],
+            function(EvEmitter, getSize, utils, Item) {
+                return factory(window, EvEmitter, getSize, utils, Item);
+            }
+        );
+    } else if (typeof module == 'object' && module.exports) {
+        // CommonJS - Browserify, Webpack
+        module.exports = factory(
+            window,
+            require('ev-emitter'),
+            require('get-size'),
+            require('fizzy-ui-utils'),
+            require('./item')
+        );
+    } else {
+        // browser global
+        window.Outlayer = factory(
+            window,
+            window.EvEmitter,
+            window.getSize,
+            window.fizzyUIUtils,
+            window.Outlayer.Item
+        );
+    }
+
+}(window, function factory(window, EvEmitter, getSize, utils, Item) {
+'use strict';
+
+// ----- var ----- //
+
+var console = window.console;
+var jQuery = window.jQuery;
+var noop = function() {};
+
+// -------------------------- Outlayer -------------------------- //
+
+// globally unique idenitifiers
+var GUID = 0;
+// internal store of all Outlayer instances
+var instances = {};
+
+/**
+ * @param {Element, String} element
+ * @param {Object} options
+ * @constructor
+ */
+function Outlayer(element, options) {
+    var queryElement = utils.getQueryElement(element);
+    if (!queryElement) {
+        if (console) {
+            console.error('Bad element for ' + this.constructor.namespace +
+                ': ' + (queryElement || element));
+        }
+        return;
+    }
+    this.element = queryElement;
+    // add jQuery
+    if (jQuery) {
+        this.$element = jQuery(this.element);
+    }
+
+    // options
+    this.options = utils.extend({}, this.constructor.defaults);
+    this.option(options);
+
+    // add id for Outlayer.getFromElement
+    var id = ++GUID;
+    this.element.outlayerGUID = id; // expand
+    instances[id] = this; // associate via id
+
+    // kick it off
+    this._create();
+
+    var isInitLayout = this._getOption('initLayout');
+    if (isInitLayout) {
+        this.layout();
+    }
+}
+
+// settings are for internal use only
+Outlayer.namespace = 'outlayer';
+Outlayer.Item = Item;
+
+// default options
+Outlayer.defaults = {
+    containerStyle: {
+        position: 'relative'
+    },
+    initLayout: true,
+    originLeft: true,
+    originTop: true,
+    resize: true,
+    resizeContainer: true,
+    // item options
+    transitionDuration: '0.4s',
+    hiddenStyle: {
+        opacity: 0,
+        transform: 'scale(0.001'
+    },
+    visibleStyle: {
+        opacity: 1,
+        transform: 'scale(1)'
+    }
+};
+
+var proto = Outlayer.prototype;
+// inherit EvEmitter
+utils.extend(proto, EvEmitter.prototype);
+
+/**
+ * set options
+ * @param {Object} opts
+ */
+proto.option = function(opts) {
+    utils.extend(this.options, opts);
+};
+
+/**
+ * get backwards compatible option value, check old name
+ */
+proto._getOption = function(option) {
+    var oldOption = this.constructor.compatOptions[option];
+    return oldOption && this.options[oldOption] !== undefined ?
+        this.options[oldOption] : this.options[option];
+};
+
+Outlayer.compatOptions = {
+    initLayout: 'isInitLayout',
+    horizontal: 'isHorizontal',
+    layoutInstant: 'isLayoutInstant',
+    originLeft: 'isOriginLeft',
+    originTop: 'isOriginTop',
+    resize: 'isResizeBound',
+    resizeContainer: 'isResizingContainer'
+};
+
+proto._create = function() {
+    // get items from children
+    this.reloadItems();
+    // elements that affect layout, but are not laid out
+    this.stamps = [];
+    this.stamp(this.options.stamp);
+    // set container style
+    utils.extend(this.element.style, this.options.containerStyle);
+
+    // bind resize method
+    var canBindResize = this._getOption('resize');
+    if (canBindResize) {
+        this.bindResize();
+    }
+};
+
+// goes through all children again and gets bricks in proper order
+proto.reloadItems = function() {
+    // collection of item element
+    this.items = this._itemize(this.element.children);
+};
+
+/**
+ * turn elements into Outlayer Items to be used in layout
+ * @param {Array or NodeList or HTMLElement} elems
+ * @returns {Array} items - collection of new Outlayer Items
+ */
+proto._itemize = function(elems) {
+
+    var itemElems = this._filterFindItemElements(elems);
+    var Item = this.constructor.Item;
+
+    // create new Outlayer Items for collection
+    var items = [];
+    for (var i = 0; i < itemElems.length; i++) {
+        var elem = itemElems[i];
+        var item = new Item(elem, this);
+        items.push(item);
+    }
+
+    return items;
+};
+
+/**
+ * get item elements to be used in layout
+ * @param {Array or NodeList or HTMLElement} elems
+ * @returns {Array} items - item elements
+ */
+proto._filterFindItemElements = function(elems) {
+    return utils.filterFindElements(elems, this.options.itemSelector);
+};
+
+/**
+ * getter method for getting item elements
+ * @returns {Array} elems - collection of item elements
+ */
+proto.getItemElements = function() {
+    return this.items.map(function(item) {
+        return item.element;
+    });
+};
+
+// ----- init & layout ----- //
+
+/**
+ * lays out all items
+ */
+proto.layout = function() {
+    this._resetLayout();
+    this._managesStamps();
+
+    // don't animate first layout
+    var layoutInstant = this._getOption('layoutInstant');
+    var isInstant = layoutInstant !== undefined ?
+        layoutInstant : !this._isLayoutInitiated;
+    this.layoutItems(this.itms, isInstant);
+
+    // flag for initialized
+    this._isLayoutInitiated = true;
+};
+
+// _init is alias for layout
+proto._init = proto.layout;
+
+/**
+ * logic before any for layout
+ */
+proto._resetLayout = function() {
+    this.getSize();
+};
+
+proto.getSize = function() {
+    this.size = getSize(this.element);
+};
+
+/**
+ * get measurement from option, for columnWidth, rowHeight, gutter
+ * if options is String -> get element from selector string, & get size of element
+ * if option is Element -> get size of element
+ * else use option as a number
+ * 
+ * @param {String} measurement
+ * @param {String} size - width or height
+ * @private
+ */
+proto._getMeasurement = function(measurement, size) {
+    var option = this.options[measurement];
+    var elem;
+    if (!option) {
+        // default to 0
+        this[measurement] = 0;
+    } else {
+        // use option as an element
+        if (typeof option == 'string') {
+            elem = this.element.querySelector(option);
+        } else if (option instanceof HTMLElement) {
+            elem = option;
+        }
+        // use size of element, if element
+        this[measurement] = elem ? getSize(elem)[size] : option;
+    }
+};
+
+/**
+ * layout a collection of item elements
+ * @api public
+ */
+proto.layoutItems = function(items, isInstant) {
+    items =this._getItemsForLayout(items);
+
+    this._layoutItems(items, isInstant);
+
+    this._postLayout();
+};
+
+/**
+ * get the items to be laid out
+ * you may want to skip over some items
+ * @param {Array} items
+ * @returns {Array} items
+ */
+proto._getItemsForLayout = function(items) {
+    return items.filter(function(item) {
+        return !item.isIgnored;
+    });
+};
+
+/**
+ * layout items
+ * @param {Array} items
+ * @param {Boolean} isInstant
+ */
+proto._layoutItems = function(items, isInstant) {
+    this._emitCompleteOnItems('layout', items);
+
+    if (!items || !items.length) {
+        // no items, emit event with empty array
+        return;
+    }
+
+    var queue = [];
+
+    items.forEach(function(item) {
+        // get x/y object from method
+        var position = this._getItemLayoutPosition(item);
+        // enqueue
+        position.item = item;
+        position.isInstant = isInstant || item.isLayoutInstant;
+        queue.push(position);
+    }, this);
+
+    this._processLayoutQueue(queue);
+};
+
+/**
+ * get item layout position
+ * @param {Outlayer.Item} item
+ * @returns {Object} x and y position
+ */
+proto._getItemLayoutPosition = function(/* item */) {
+    return {
+        x: 0,
+        y: 0
+    };
+};
+
+/**
+ * iterate over array and position each item
+ * Reason being - separating this logic prevents 'layout invalidation'
+ * @param {Array} queue
+ */
+proto._processLayoutQueue = function(queue) {
+    this.updateStagger();
+    queue.forEach(function(obj, i) {
+        this._positionItem(obj.item, obj.x, obj.y, obj.isInstant, i);
+    }, this);
+};
+
+// set stagger fromo option in milliseconds number
+proto.updateStagger = function() {
+    var stagger = this.options.stagger;
+    if (stagger === null || stagger === undefined) {
+        this.stagger = 0;
+        return;
+    }
+    this.stagger = getMilliseconds(stagger);
+    return this.stagger;
+};
+
+/**
+ * Sets position of item in DOM
+ * @param {Outlayer.Item} item
+ * @param {Number} x - horizontal position
+ * @param {Number} y - veritcal position
+ * @param {Boolean} isInstant - disables transitions
+ */
+proto._positionItem = function(item, x, y, isInstant, i) {
+    if (isInstant) {
+        // if not transition, just set CSS
+        item.goTo(x, y);
+    } else {
+        item.stagger(i * this.stagger);
+        item.moveTo(x, y);
+    }
+};
+
+/**
+ * Any logic you want to do after each layout,
+ * i.e. size the container
+ */
+proto._postLayout = function() {
+    this.resizeContainer();
+};
+
+proto.resizeContainer = function() {
+    var isResizingContainer = this._getOption('resizeContainer');
+    if (!isResizingContainer) {
+        return;
+    }
+    var size = this._getContainerSize();
+    if (size) {
+        this._setContainerMeasure(size.width, true);
+        this._setContainerMeasure(size.height, false);
+    }
+};
+
+/**
+ * Sets width or height of container if returned
+ * @returns {Object} size
+ * @param {Number} width 
+ * @param {Number} height 
+ */
+proto._getContainerSize = noop;
+
+/**
+ * @param {Number} measure - size of width or height
+ * @param {Boolean} isWidth
+ */
+proto._setContainerMeasure = function(measure, isWidth) {
+    if (measure === undefined) {
+        return;
+    }
+
+    var elemSize = this.size;
+    // add padding and border width if border box
+    if (elemSize.isBorderBox) {
+        measure += isWidth ? elemSize.paddingLeft + elemSize.paddingRight +
+            elemSize.borderLeftWidth + elemSize.borderRightWidth :
+            elemSize.paddingBottom + elemSize.paddingTop +
+            elemSize.borderTopWidth + elemSize.borderBottomWidth;
+    }
+
+    measure = Math.max(measure, 0);
+    this.element.style[isWidth ? 'width' : 'height'] = measure + 'px';
+};
+
+/**
+ * emit eventComplete on a collection of items events
+ * @param {String} eventName
+ * @param {Array} items - Outlayer.Items
+ */
+proto._emitCompleteOnItems = function(eventName, items) {
+    var _this = this;
+    function onComplete() {
+        _this.dispatchEvent(eventName + 'Complete', null, [items]);
+    }
+
+    var count = items.length;
+    if (!items || !count) {
+        onComplete();
+        return;
+    }
+
+    var doneCount = 0;
+    function tick() {
+        doneCount++;
+        if (doneCount == count) {
+            onComplete();
+        }
+    }
+
+    // bind callback
+    items.forEach(function(item) {
+        item.once(eventName, tick);
+    }); 
+};
+
+/**
+ * emits events via EvEmitter and jQuery events
+ * @param {String} type - name of event
+ * @param {Event} event - original event
+ * @param {Array} args - extra arguments
+ */
+
+
+
+}))
