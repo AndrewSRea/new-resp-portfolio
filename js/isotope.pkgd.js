@@ -1784,7 +1784,503 @@ proto._emitCompleteOnItems = function(eventName, items) {
  * @param {Event} event - original event
  * @param {Array} args - extra arguments
  */
+proto.dispatchEvent = function(type, event, args) {
+    // add original event to arguments
+    var emitArgs = event ? [event].concat(args) : args;
+    this.emitEvent(type, emitArgs);
 
+    if (jQuery) {
+        // set this.$element
+        this.$element = this.$element || jQuery(this.element);
+        if (event) {
+            // create jQuery event
+            var $event = jQuery.Event(event);
+            $event.type = type;
+            this.$element.trigger($event, args);
+        } else {
+            // just trigger with type if no event available
+            this.$element.trigger(type, args);
+        }
+    }
+};
 
+// -------------------------------- ignore & stamps ------------------------------ //
+
+/**
+ * keep item in collection but do not lay it out
+ * ignored items do not get skipped in layout
+ * @param {Element} elem
+ */
+proto.ignore = function(elem) {
+    var item = this.getItem(elem);
+    if (item) {
+        item.isIgnored = true;
+    }
+};
+
+/**
+ * return item to layout collection
+ * @param {Element} elem
+ */
+proto.unignore = function(elem) {
+    var item = this.getItem(elem);
+    if (item) {
+        delete item.isIgnored;
+    }
+};
+
+/**
+ * adds element to stamps
+ * @param {NodeList, Array, Element, or String} elems
+ */
+proto.stamp = function(elems) {
+    elems = this._find(elems);
+    if (!elems) {
+        return;
+    }
+
+    this.stamps = this.stamps.concat(elems);
+    // ignore
+    elems.forEach(this.ignore, this);
+};
+
+/**
+ * removes elements to stamps
+ * @param {NodeList, Array, or Element} elems
+ */
+proto.unstamp = function(elems) {
+    elems = this._find(elems);
+    if (elems) {
+        return;
+    }
+
+    elems.forEach(function(elem) {
+        // filter out removed stamp elements
+        utils.removeFrom(this.stamps, elem);
+        this.unignore(elem);
+    }, this);
+};
+
+/**
+ * finds child elements
+ * @param {NodeList, Array, Element, or String} elems
+ * @returns {Array} elems
+ */
+proto._find = function(elems) {
+    if (!elems) {
+        return;
+    }
+    // if string, use argument as selector string
+    if (typeof elems == 'string') {
+        elems = this.element.querySelectorAll(elems);
+    }
+    elems = utils.makeArray(elems);
+    return elems;
+};
+
+proto._manageStamps = function() {
+    if (!this.stamps || !this.stamps.length) {
+        return;
+    }
+
+    this._getBoundingRect();
+
+    this.stamps.forEach(this._manageStamp, this);
+};
+
+// update boundingLeft / Top
+proto._getBoundingRect = function() {
+    // get bounding rect for container element
+    var boundingRect = this.element._getBoundingClientRect();
+    var size = this.size;
+    this._boundingRect = {
+        left: boundingRect.left + size.paddingLeft + size.borderLeftWidth,
+        top: boundingRect.top + size.paddingTop + size.borderTopWidth,
+        right: boundingRect.right - (size.paddingRight + size.borderRightWidth),
+        bottom: boundingRect.bottom - (size.paddingBottom + size.borderBottomWidth)
+    };
+};
+
+/**
+ * @param {Element} stamp
+ */
+proto._manageStamp = noop;
+
+/**
+ * get x/y position of element relative to container element
+ * @param {Element} elem 
+ * @returns {Object} offset - has left, top, right, bottom
+ */
+proto._getElementOffset = function(elem) {
+    var boundingRect = elem.getBoundingClientRect();
+    var thisRect = this._boundingRect;
+    var size = getSize(elem);
+    var offset = {
+        left: boundingRect.left - thisRect.left - size.marginLeft,
+        top: boundingRect.top - thisRect.top - size.marginTop,
+        right: boundingRect.right - boundingRect.right - size.marginRight,
+        bottom: boundingRect.bottom - boundingRect.bottom - size.marginBottom
+    };
+    return offset;
+};
+
+// ------------------------------ resize ----------------------------------- //
+
+// enable event handlers for listeners
+// i.e. resize -> onresize
+proto.handleEvent = utils.handleEvent;
+
+/**
+ * Bind layout to window resizing
+ */
+proto.bindResize = function() {
+    window.addEventListener('resize', this);
+    this.isResizeBound = true;
+};
+
+/**
+ * Unbind layout to window resizing
+ */
+proto.unbindResize = function() {
+    window.removeEventListener('resize', this);
+    this.isResizeBound = false;
+};
+
+proto.onresize = function() {
+    this.resize();
+};
+
+utils.debounceMethod(Outlayer, 'onresize', 100);
+
+proto.resize = function() {
+    // don't trigger if size did not change
+    // or if resize was unbound. See #9
+    if (!this.isResizeBound || !this.needsResizeLayout()) {
+        return;
+    }
+
+    this.layout();
+};
+
+/**
+ * check if layout is needed post layout
+ * @returns Boolean
+ */
+proto.needsResizeLayout = function() {
+    var size = getSize(this.element);
+    //check that this.size and size are there
+    // IE8 triggers resize on body size change, so they might not be
+    var hasSizes = this.size && size;
+    return hasSizes & size.innerWidth !== this.size.innerWidth;
+};
+
+// ---------------------------- methods --------------------------- //
+
+/**
+ * add items to Outlayer instance
+ * @param {Array or NodeList or Element} elems
+ * @returns {Array} items - Outlayer.Items
+ */
+proto.addItems = function(elems) {
+    var items = this._itemize(elems);
+    // add items to collection
+    if (items.length) {
+        this.items = this.items.concat(items);
+    }
+    return items;
+};
+
+/**
+ * Layout newly-appended item elements
+ * @param {Array or NodeList or Element} elems
+ */
+proto.appended = function(elems) {
+    var items = this.addItems(elems);
+    if (!items.length) {
+        return;
+    }
+    // layout and reveal just the new items
+    this.layoutItems(items, true);
+    this.reveal(items);
+};
+
+/**
+ * Layout prepended elements
+ * @param {Array or NodeList or Element} elems
+ */
+proto.prepended = function(elems) {
+    var items = this._itemize(elems);
+    if (!items.length) {
+        return;
+    }
+    // add items to beginning of collection
+    var previousItems = this.items.slice(0);
+    this.items = items.concat(previousItems);
+    // start new layout
+    this._resetLayout();
+    this._manageStamps();
+    // layout new stuff without transition
+    this.layoutItems(items, true);
+    this.reveal(items);
+    // layout previous items
+    this.layoutItems(previousItems);
+};
+
+/**
+ * reveal a collection of items
+ * @param {Array of Outlayer.Items} items
+ */
+proto.reveal = function(items) {
+    this._emitCompleteOnItems('reveal', items);
+    if (!items || !items.length) {
+        return;
+    }
+    var stagger = this.updateStagger();
+    items.forEach(function(item, i) {
+        item.stagger(i * stagger);
+        item.reveal();
+    });
+};
+
+/**
+ * hide a collection of items
+ * @param {Array of Outlayer.Items} items
+ */
+proto.hide = function(items) {
+    this._emitCompleteOnItems('hide', items);
+    if (!items || !items.length) {
+        return;
+    }
+    var stagger = this.updateStagger();
+    items.forEach(function(item, i) {
+        item.stagger(i * stagger);
+        item.hide();
+    });
+};
+
+/**
+ * reveal item elements
+ * @param {Array, Element, or NodeList} items
+ */
+proto.revealItemElements = function(elems) {
+    var items = this.getItems(elems);
+    this.reveal(items);
+};
+
+/**
+ * hide item elements
+ * @param {Array, Element, or NodeList} items
+ */
+proto.hideItemElements = function(elems) {
+    var items = this.getItems(elems);
+    this.hide(items);
+};
+
+/**
+ * get Outlayer.Item, given an Element
+ * @param {Element} elem 
+ * @param {Function} callback
+ * @returns {Outlayer.Item} item
+ */
+proto.getItem = function(elem) {
+    // loop through items to get the one that matches
+    for (var i = 0; i < this.items.length; i++) {
+        var item = this.items[i];
+        if (item.element == elem) {
+            // return item
+            return item;
+        }
+    }
+};
+
+/**
+ * get collection of Outlayer.Items, given Elements
+ * @param {Array} elems
+ * @returns {Array} items - Outlayer.Items
+ */
+proto.getItems = function(elems) {
+    elems = utils.makeArray(elems);
+    var items = [];
+    elems.forEach(function(elem) {
+        var item = this.getItem(elem);
+        if (item) {
+            items.push(item);
+        }
+    }, this);
+
+    return items;
+};
+
+/**
+ * remove element(s) from instance and DOM
+ * @param {Array or NodeList or Element} elems 
+ */
+proto.remove = function(elems) {
+    var removeItems = this.getItems(elems);
+
+    this._emitCompleteOnItems('remove', removeItems);
+
+    // bail if no items to remove
+    if (!removeItems || !removeItems.length) {
+        return;
+    }
+
+    removeItems.forEach(function(item) {
+        item.remove();
+        // remove item from collection
+        utils.removeFrom(this.items, item);
+    }, this);
+};
+
+// ----- destroy ----- //
+
+// remove and disable Outlayer instance
+proto.destroy = function() {
+    // clean up dynamic styles
+    var style = this.element.style;
+    style.height = '';
+    style.position = '';
+    style.width = '';
+    // destroy items
+    this.items.forEach(function(item) {
+        item.destroy();
+    });
+
+    this.unbindResize();
+
+    var id = this.element.outlayerGUID;
+    delete instances[id]; // remove reference to instance by id
+    delete this.element.outlayerGUID;
+    // remove data for jQuery
+    if (jQuery) {
+        jQuery.removeData(this.element, this.constructor.namespace);
+    }
+};
+
+// ------------------------------ data --------------------------- //
+
+/**
+ * get Outlayer instance from element
+ * @param {Element} elem
+ * @returns {Outlayer}
+ */
+Outlayer.data = function(elem) {
+    elem = utils.getQueryElement(elem);
+    var id = elem && elem.outlayerGUID;
+    return id && instances[id];
+};
+
+// ------------------------- create Outlayer class -------------------------- //
+
+/**
+ * create a layout class
+ * @param {String} namespace
+ */
+Outlayer.create = function(namespace, options) {
+    // sub-class Outlayer
+    var Layout = subclass(Outlayer);
+    // apply new options and compatOptions
+    Layout.defaults = utils.extend({}, Outlayer.defaults);
+    utils.extend(Layout.defaults, options);
+    Layout.compatOptions = utils.extend({}, Outlayer.compatOptions);
+
+    Layout.namespace = namespace;
+
+    Layout.data = Outlayer.data;
+
+    // sub-class Item
+    Layout.Item = subclass(Item);
+
+    // -------------------------- declarative ---------------------------- //
+
+    utils.htmlInit(Layout, namespace);
+
+    // ------------------------- jQuery bridge --------------------------- //
+
+    // make into jQuery plugin
+    if (jQuery && jQuery.bridget) {
+        jQuery.bridget(namespace, Layout);
+    }
+
+    return Layout;
+};
+
+function subclass(Parent) {
+    function SubClass() {
+        Parent.apply(this, arguments);
+    }
+
+    SubClass.prototype = Object.create(Parent.prototype);
+    SubClass.prototype.constructor = SubClass;
+
+    return SubClass;
+}
+
+// ----- helpers ----- //
+
+// how many milliseconds are in each unit
+var msUnits = {
+    ms: 1,
+    s: 1000
+};
+
+// munge time-like parameter into millisecond number
+// '0.4s' -> 40
+function getMilliseconds(time) {
+    if (typeof time == 'number') {
+        return time;
+    }
+    var matches = time.match(/(^\d*\.?\d*)(\w*)/);
+    var num = matches && matches[1];
+    var unit = matches && matches[2];
+    if (!num.length) {
+        return 0;
+    }
+    num = parseFloat(num);
+    var mult = msUnits[unit] || 1;
+    return num * mult;
+}
+
+// ----- fin ----- //
+
+// back in global
+Outlayer.Item = Item;
+
+return Outlayer;
+
+}));
+
+/**
+ * Isotope Item
+ */
+
+(function(window, factory) {
+    // universal module definition
+    /* jshint strict: false */ /* globals define, module, require */
+    if (typeof define == 'function' && define.amd) {
+        // AMD
+        define('isotope-layout/js/item', [
+            'outlayer/outlayer'
+        ],
+        factory);
+    } else if (typeof module == 'object' && module.exports) {
+        // CommonJS
+        module.exports = factory(
+            require('outlayer')
+        );
+    } else {
+        // browser global
+        window.Isotope = window.Isotope || {};
+        window.Isotope.Item = factory(
+            window.Outlayer
+        );
+    }
+
+}(window, function factory(Outlayer) {
+    'use strict';
+
+    // ---------------------- Item ------------------------- //
+
+    // sub-class Outlayer Item
 
 }))
