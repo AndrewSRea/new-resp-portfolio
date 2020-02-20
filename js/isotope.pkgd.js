@@ -2483,3 +2483,78 @@ return Item;
     return LayoutMode;
 
 }));
+
+/*!
+ * Masonry v4.2.1
+ * Cascading grid layout library
+ * https://masonry.desandro.com
+ * MIT License
+ * by David DeSandro
+ */
+
+(function(window, factory) {
+    // universal module defiition
+    /* jshint strict: false */ /* globals define, module, require */
+    if (typeof define == 'function' && define.amd) {
+        // AMD
+        define('masonry-layout/masonry', [
+            'outlayer/outlayer',
+            'get-size/get-size'
+        ],
+        factory);
+    } else if (typeof module == 'object' && module.exports) {
+        // CommonJS
+        module.exports = factory(
+            require('outlayer'),
+            require('get-size')
+        );
+    } else {
+        // browser global
+        window.Masonry = factory(
+            window.Outlayer,
+            window.getSize
+        );
+    }
+
+}(window, function factory(Outlayer, getSize) {
+
+// ------------------------ masonryDefinition ---------------------- //
+
+    // create an Outlayer layout class
+    var Masonry = Outlayer.create('masonry');
+    // isFitWidth -> fitWidth
+    Masonry.compatOptions.fitWidth = 'isFitWidth';
+
+    var proto = Masonry.prototype;
+
+    proto._resetLayout = function() {
+        this.getSize();
+        this._getMeasurement('columnWidth', 'outerWidth');
+        this._getMeasurement('gutter', 'outerWidth');
+        this.measureColumns();
+
+        // reset column Y
+        this.colYs = [];
+        for (var i = 0; i < this.cols; i++) {
+            this.colYs.push(0);
+        }
+
+        this.maxY = 0;
+        this.horizontalColIndex = 0;
+    };
+
+    proto.measureColumns = function() {
+        this.getContainerWidth();
+        // if columnWidth is 0, default to outerWidth of first item
+        if (!this.columnWidth) {
+            var firstItem = this.items[0];
+            var firstItemElem = firstItem && firstItem.element;
+            // columnWidth fall back to item of first element
+            this.columnWidth = firstItemElem && getSize(firstItemElem).outerWidth ||
+                // if first elem has no width, default to size of container
+                this.containerWidth;
+        }
+    }
+
+
+}))
