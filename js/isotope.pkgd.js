@@ -2685,7 +2685,315 @@ return Item;
         }
     };
 
-    
+    proto._getContainerSize = function() {
+        this.maxY = Math.max.apply(Math, this.colYs);
+        var size = {
+            height: this.maxY
+        };
+
+        if (this._getOption('fitWidth')) {
+            size.width = this._getContainerFitWidth();
+        }
+
+        return size;
+    };
+
+    proto._getContainerFitWidth = function() {
+        var unusedCols = 0;
+        // count uused columns
+        var i = this.cols;
+        while (--i) {
+            if (this.colYs[i] !== 0) {
+                break;
+            }
+            unusedCols++;
+        }
+        // fit container to columns that have been used
+        return (this.cols - unusedCols) * this.columnWidth - this.gutter;
+    };
+
+    proto.needsResizeLayout = function() {
+        var previousWidth = this.containerWidth;
+        this.getContainerWidth();
+        return previousWidth != this.containerWidth;
+    };
+
+    return Masonry;
+
+}));
+
+/*!
+ * Masonry layout mode
+ * sub-classes Masonry
+ * https://masonry.desandro.com
+ */
+
+(function(window, factory) {
+    // universal module definition
+    /* jshint strict: false */ /* globals define, module, require */
+    if (typeof define == 'function' && define.amd) {
+        // AMD
+        define('isotope-layout/js/layout-modes/masonry', [
+            '../layout-mode',
+            'masonry-layout/masonry'
+        ],
+        factory);
+    } else if (typeof module == 'object' && module.exports) {
+        // CommonJS
+        module.exports = factory(
+            require('../layout-mode'),
+            require('masonry-layout')
+        );
+    } else {
+        // browser global
+        factory(
+            window.Isotope.LayoutMode,
+            window.Masonry
+        );
+    }
+
+}(window, function factory(LayoutMode, Masonry) {
+'use strict';
+
+// ------------------------- masonryDefinition ------------------------- //
+
+    // create an Outlayer layout class
+    var MasonryMode = LayoutMode.create('masonry');
+
+    var proto = MasonryMode.prototype;
+
+    var keepModeMethods = {
+        _getElementOffset: true,
+        layout: true,
+        _getMeasurement: true
+    };
+
+    // inherit Masonry prototype
+    for (var method in Masonry.prototype) {
+        // do not inherit mode methods
+        if (!keepModeMethods[method]) {
+            proto[method] = Masonry.prototype[method];
+        }
+    }
+
+    var measureColumns = proto.measureColumns;
+    proto.measureColumns = function() {
+        // set items, used if measuring first item
+        this.items = this.isotope.filteredItems;
+        measureColumns.call(this);
+    };
+
+    // point to mode options for fitWidth
+    var _getOption = proto._getOption;
+    proto._getOption = function(option) {
+        if (option == 'fitWidth') {
+            return this.options.isFitWidth !== undefined ?
+                this.options.isFitWidth : this.options.fitWidth;
+        }
+        return _getOption.apply(this.isotope, arguments);
+    };
+
+    return MasonryMode;
+
+}));
+
+/**
+ * fitRows layout mode
+ */
+
+(function(window, factory) {
+    // universal module definition
+    /* jshint strict: false */ /* golbals define, module, require */
+    if (typeof define == 'function' && define.amd) {
+        // AMD
+        define('isotope-layout/js/layout-modes/fit-rows', [
+            '../layout-mode'
+        ],
+        factory);
+    } else if (typeof exports == 'object') {
+        // CommonJS
+        module.exports = factory(
+            require('../layout-mode')
+        );
+    }
+
+}(window, function factory(LayoutMode) {
+'use strict';
+
+var FitRows = LayoutMode.create('fitRows');
+
+var proto = FitRows.prototype;
+
+proto._resetLayout = function() {
+    this.x = 0;
+    this.y = 0;
+    this.maxY = 0;
+    this._getMeasurement('gutter', 'outerWidth');
+};
+
+proto._getItemLayoutPosition = function(item) {
+    item.getSize();
+
+    var itemWidth = item.size.outerWidth + this.gutter;
+    // if this element cannot fit in the curent row
+    var containerWidth = this.isotope.size.innerWidth + this.gutter;
+    if (this.x !== 0 && itemWidth + this.x > containerWidth) {
+        this.x = 0;
+        this.y = this.maxY;
+    }
+
+    var position = {
+        x: this.x,
+        y: this.y
+    };
+
+    this.maxY = Math.max(this.maxY, this.y + item.size.outerHeight);
+    this.x += itemWidth;
+
+    return position;
+};
+
+proto._getContainerSize = function() {
+    return { height: this.maxY };
+};
+
+return FitRows;
+
+}));
+
+/**
+ * vertical layout mode
+ */
+
+(function(window, factory) {
+    // universal module definition
+    /* jshint strict: false */ /* globals define, module, require */
+    if (typeof define == 'function' && define.amd) {
+        // AMD
+        define('isotope-layout/js/layout-modes/vertical', [
+            '../layout-mode'
+        ],
+        factory);
+    } else if (typeof module == 'object' && module.exports) {
+        // CommonJS
+        module.exports = factory(
+            require('../layout-mode')
+        );
+    } else {
+        // browser global
+        factory(
+            window.Isotope.LayoutMode
+        );
+    } else {
+        // browser global
+        factory(
+            window.Isotope.LayoutMode
+        );
+    }
+
+}(window, function factory(LayoutMode) {
+'use strict';
+
+var Vertical = LayoutMode.create('vertical', {
+    horizontalAlignment: 0
+});
+
+var proto = Vertical.prototype;
+
+proto._resetLayout = function() {
+    this.y = 0;
+};
+
+proto._getItemLayoutPosition = function(item) {
+    item.getSize();
+    var x = (this.isotope.size.innerWidth - item.size.outerWidth) *
+        this.options.horizontalAlignment;
+    var y = this.y;
+    this.y += item.size.outerHeight;
+    return { x: x, y: y};
+};
+
+proto._getContainerSize = function() {
+    return { height: this.y};
+};
+
+return Vertical;
+
+}));
+
+/*!
+ * Isotope v3.0.6
+ *
+ * Licensed GPLx3 for open source use
+ * or Isotope Commercial License for commercial use
+ * 
+ * https://isotope.metafizzt.co
+ * Copyright 2010-2018 Metafizzy
+ */
+
+(function(window, factory) {
+    // universal module definition
+    /* jshint strict: false */ /* golbals define, module, require */
+    if (typeof define == 'function' && define.amd) {
+        // AMD
+        define([
+            'outlayer/outlayer',
+            'get-size/get-size',
+            'desandro.matches-selector/matches-selector',
+            'fizzy-ui-utils/utils',
+            'isotope-layout/js/item',
+            'isotope-layout/js/layout-mode',
+            'isotope-layout/js/layout-modes/masonry',
+            'isotope-layout/js/layout-modes/fit-rows',
+            'isotope-layout/js/layout-modes/vertical'
+        ],
+        function(Outlayer, getSize, matchesSelector, utils, Item, LayoutMode) {
+            return factory(window, Outlayer, getSize, matchesSelector, utils, Item, LayoutMode);
+        });
+    } else if (typeof module == 'object' && module.exports) {
+        // CommonJS
+        module.exports = factory(
+            window,
+            require('outlayer'),
+            require('get-size'),
+            require('desandro-matches-selector'),
+            require('fizzy-ui-utils'),
+            require('isotope-layout/js/item'),
+            require('isotope-layout/js/layout-mode'),
+            // include default layout modes
+            require('isotope-layout/js/layout-modes/masonry'),
+            require('isotope-layout/js/layout-modes/fit-rows'),
+            require('isotope-layout/js/layout-modes/vertical')
+        );
+    } else {
+        // browser global
+        window.Isotope = factory(
+            window,
+            window.Outlayer;
+            window.getSize,
+            window.matchesSelector,
+            window.fizzyUIUtils,
+            window.Isotope.Item,
+            window.Isotope.LayoutMode
+        );
+    }
+
+}(wondpw, function factory(window, Outlayer, getSize, matchesSelector, utils,
+    Item, LayoutMode) {
+
+// ------------------------- vars ------------------------------- //
+
+var jQuery = window.jQuery;
+
+// ------------------------ helpers ----------------------------- //
+
+var trim = String.prototype.trim ?
+    function(str) {
+        return str.trim();
+    } :
+    function(str) {
+        return str.replace(/^\s+|\s+$/g, '');
+    };
 
 
-}))
+    }))
