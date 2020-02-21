@@ -3382,7 +3382,7 @@ var trim = String.prototype.trim ?
     };
 
     proto._getItemLayoutPosition = function(item) {
-        return this._mode()._getItemLayoutPosition(item;
+        return this._mode()._getItemLayoutPosition(item);
     };
 
     proto._manageStamp = function(stamp) {
@@ -3433,7 +3433,93 @@ var trim = String.prototype.trim ?
      * Filter, sort, and layout newly-appended item elements
      * @param {Array or NodeList or Element} elems
      */
-    
+    proto.insert = function(elems) {
+        var items = this.addItems(elems);
+        if (!items.length) {
+            return;
+        }
+        // append item elements
+        var i, item;
+        var len = items.length;
+        for (i = 0; i < len; i++) {
+            item = items[i];
+            this.element.appendChild(item.element);
+        }
+        // filter new stuff
+        var filteredInsertItems = this._filter(items).matches;
+        // set flag
+        for (i = 0; i < len; i++) {
+            items[i].isLayoutInstant = true;
+        }
+        this.arrange();
+        // reset flag
+        for (i = 0; i < len; i++) {
+            delete items[i].isLayoutInstant;
+        }
+        this.reveal(filteredInsertItems);
+    };
+
+    var _remove = proto.remove;
+    proto.remove = function(elems) {
+        elems = utils.makeArray(elems);
+        var removeItems = this.getItems(elems);
+        // do regular thing
+        _remove.call(this, elems);
+        // bail if no items to remove
+        var len = removeItems && removeItems.length;
+        // remove elems from filteredItems
+        for (var i = 0; len && i < len; i++) {
+            var item = removeItems[i];
+            // remove item from collection
+            utils.removeFrom(this.filteredItems, item);
+        }
+    };
+
+    proto.shuffle = function() {
+        // update ramdom sortData
+        for (var i = 0; i < this.items.length; i++) {
+            var item = this.items[i];
+            item.sortData.random = Math.random();
+        }
+        this.options.sortBy = 'random';
+        this._sort();
+        this._layout();
+    };
+
+    /**
+     * trigger fn without transition
+     * @param {Function} fn
+     * @param {Array} args
+     * @returns ret
+     * @private
+     */
+    proto._noTransition = function(fn, args) {
+        // save transitionDuration before disabling
+        var transitionDuration = this.options.transitionDuration;
+        // disable transition
+        this.options.transitionDuration = 0;
+        // do it
+        var returnValue = fn.apply(this. args);
+        // re-enable transition for reveal
+        this.options.transitionDuration = transitionDuration;
+        return returnValue;
+    };
+
+    // ----- helper methods ----- //
+
+    /**
+     * getter method for getting filtered item elements
+     * @returns {Array} elems - collection of item elements
+     */
+    proto.getFilteredItemElements = function() {
+        return this.filteredItems.map(function(item) {
+            return item.element;
+        });
+    };
+
+    // -----  ----- //
+
+    return Isotope;
 
 
-}))
+}));
