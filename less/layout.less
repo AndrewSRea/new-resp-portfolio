@@ -1,0 +1,336 @@
+/*
+    Import Settings
+*/
+@import url('setting.less');
+
+/*
+    TABLE OF CONTENTS
+    1. Base
+    2. Container
+    3. Columns
+    4. Preloader
+    5. Typography
+    6. Forms
+    7. Alignments
+    8. Animations
+*/
+
+/*
+    1. Header
+*/
+
+.header {
+    position: absolute;
+    left: -80px;
+    top: 15px;
+    width: 72px;
+    z-index: 100;
+    text-align: center;
+    opacity: 1;
+    visibility: visible;
+    .border-radius(4px);
+    &.active {
+        opacity: 1!important;
+        visibility: visible!important;
+    }
+    .top-menu {
+        width: 100%;
+        font-size: 0;
+        ul {
+            li {
+                display: block;
+                .transition(color 0.3s ease 0s);
+                &:first-child {
+                    a {
+                        .border-radius(4px 4px 0 0);
+                    }
+                }
+                &:last-child {
+                    a {
+                        .border-radius(0 0 4px 4px);
+                        border: none;
+                        &:before {
+                            display: none;
+                        }
+                    }
+                }
+                a {
+                    position: relative;
+                    overflow: hidden;
+                    display: block;
+                    height: 72px;
+                    color: @dark-color;
+                    text-align: center;
+                    background: @white-color;
+                    &:before {
+                        content: '';
+                        position: absolute;
+                        left: 0;
+                        bottom: 0;
+                        width: 100%;
+                        height: 1px;
+                        background: -moz-radial-gradient(right, ellipse cover, rgba(197,202,213,0.7) 0%, rgba(255,255,255,0) 70%);
+                        background: -webkit-radial-gradient(right, ellipse cover, rgba(197,202,213,0.7) 0%, rgba(255,255,255,0) 70%);
+                        background: radial-gradient(ellipse at right, rgba(197,202,213,0.7) 0%, rgba(255,255,255,0) 70%);
+                    }
+                    .icon {
+                        margin: -27px 0 0 -20px;
+                        position: absolute;
+                        top: 50%;
+                        left: 50%;
+                        width: 40px;
+                        height: 40px;
+                        font-size: @default-icon-size;
+                        color: @dark-color;
+                        line-height: 40px;
+                        .border-radius(30px);
+                        .transition(all 0.3s ease 0s);
+                    }
+                    .link {
+                        position: absolute;
+                        left: 0;
+                        top: 57%;
+                        width: 100%;
+                        display: block;
+                        font-size: @extra2-small-size;
+                        font-weight: 500;
+                        text-transform: uppercase;
+                        .transition(all 0.3s ease 0s);
+                    }
+                }
+                &:hover, &.active {
+                    a {
+                        color: @active-color;
+                        .icon, .link {
+                            color: @active-color;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    @media (max-width: 1023px) {
+        position: fixed;
+        left: 0;
+        top: -4px;
+        width: 100%;
+        height: 72px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        .top-menu {
+            margin: 0 auto;
+            max-width: 540px;
+            display: flex;
+            box-shadow: 0 0 25px rgba(0,0,0,0.05);
+            ul {
+                display: flex;
+                width: 100%;
+                li {
+                    display: block;
+                    width: 100%;
+                    &:first-child {
+                        a {
+                            .border-radius(4px 0 0 4px);
+                        }
+                    }
+                    &:last-child {
+                        a {
+                            .border-radius(0 4px 4px 0);
+                        }
+                    }
+                    &:last-child a:before {
+                        display: block;
+                    }
+                    a {
+                        &:before {
+                            content: '';
+                            position: absolute;
+                            left: 0;
+                            bottom: 0;
+                            width: 1px;
+                            height: 100%;
+                            background: -moz-radial-gradient(top, ellipse cover, rgba(197,202,213,0.7) 0%, rgba(255,255,255,0) 70%);
+                            background: -webkit-radial-gradient(top, ellipse cover, rgba(197,202,213,0.7) 0%, rgba(255,255,255,0) 70%);
+                            background: radial-gradient(ellipse at top, rgba(197,202,213,0.7) 0%, rgba(255,255,255,0) 70%);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    @media (max-width: 560px) {
+        padding: 0 5px;
+        width: 100%;
+        .top-menu {
+            max-width: 100%;
+        }
+    }
+}
+
+/*
+    2. Card - Started
+*/
+
+.card-started {
+    position: relative;
+    width: 100%;
+    height: 600px;
+    z-index: 11;
+    .border-radius(4px);
+    &:before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        box-shadow: 10px 10px 15px rgba(0,0,0,0.05);
+        .border-radius(0 0 4px 0);
+    }
+    &:after {
+        content: '';
+        position: absolute;
+        left: -15px;
+        top: -15px;
+        width: 100%;
+        height: 100%;
+        background: -moz-linear-gradient(-45deg, @extra-active-color 0%, @extra2-active-color 100%);
+        background: -webkit-linear-gradient(-45deg, @extra-active-color 0%, @extra2-active-color 100%);
+        background: linear-gradient(135deg, @extra-active-color 0%, @extra2-active-color 100%);
+        .border-radius(4px);
+    }
+    .profile {
+        padding: 210px 50px 50px 50px;
+        position: relative;
+        height: 100%;
+        background: @white-color;
+        z-index: 10;
+        .border-radius(4px);
+        &.no-photo {
+            padding-top: 340px;
+            .image {
+                display: none;
+            }
+        }
+        .slide {
+            position: absolute;
+            overflow: hidden;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 300px;
+            background-color: @default-color;
+            background-repeat: no-repeat;
+            background-position: center center;
+            background-size: cover;
+            .border-radius(4px 4px 0 0);
+            &:before, &:after {
+                content: '';
+                position: absolute;
+                left: -25%;
+                bottom: -198px;
+                width: 700px;
+                height: 200px;
+                background: @white-color;
+                .transform(rotate(12deg));
+            }
+            &:after {
+                left: auto;
+                right: -25%;
+                .transform(rotate(-6deg));
+            }
+        }
+        .image {
+            margin: 0 0 20px 0;
+            position: relative;
+            display: inline-block;
+            width: 140px;
+            &:before {
+                content: '';
+                position: absolute;
+                top: 10px;
+                left: -10px;
+                width: 100%;
+                height: 100%;
+                background: -moz-linear-gradient(-45deg, @extra-active-color 0%, @extra2-active-color 100%);
+                background: -webkit-linear-gradient(-45deg, @extra-active-color 0%, @extra2-active-color 100%);
+                background: linear-gradient(135deg, @extra-active-color 0%, @extra2-active-color 100%);
+                .border-radius(100%);
+            }
+            img {
+                position: relative;
+                display: block;
+                width: 100%;
+                height: auto;
+                border: 3px solid @white-color;
+                .border-radius(100%);
+            }
+        }
+        .title {
+            margin: 0 0 10px 0;
+            font-size: @title-size;
+            color: @dark-color;
+            line-height: @title-size;
+            font-weight: 400;
+        }
+        .subtitle {
+            margin: 0 0 15px 0;
+            font-size: @subtitle-size;
+            color: @active-color;
+            line-height: @subtitle-size;
+            font-weight: 400;
+        }
+        .social {
+            a {
+                margin: 0 6px;
+                display: inline-block;
+                vertical-align: middle;
+                .ion, .fab, .fas {
+                    font-size: @small-icon-size;
+                    color: @dark-color;
+                    .transition(all 0.3s ease 0s);
+                }
+                &:hover {
+                    .ion, .fab, .fas {
+                        color: @active-color;
+                    }
+                }
+            }
+        }
+        .lnk {
+            &.active.discover {
+                .arrow {
+                    .transform(scaleX(-1));
+                }
+            }
+        }
+    }
+    @media (max-width: 560px) {
+        height: 480px;
+        &:after {
+            display: none;
+        }
+        .profile {
+            padding: 135px 25px 25px 25px;
+            &.no-photo {
+                padding-top: 250px;
+            }
+            .slide {
+                height: 200px;
+            }
+            .image {
+                margin: 0 0 15px 0;
+                width: 124px;
+            }
+            .title {
+                font-size: 28px;
+                line-height: 28px;
+            }
+        }
+    }
+}
+
+/*
+    3. Cards
+*/
