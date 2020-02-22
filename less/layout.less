@@ -334,3 +334,493 @@
 /*
     3. Cards
 */
+
+.card-inner {
+    padding: 0;
+    position: absolute;
+    overflow: hidden;
+    left: 95%;
+    top: 15px;
+    width: 120%;
+    height: 570px;
+    background: @white-color;
+    transform-origin: center left;
+    opacity: 0;
+    z-index: 8;
+    .border-radius(4px);
+    transition: visibility 1s linear, opacity 0.5s linear;
+    -moz-transition: visibility 1s linear, opacity 0.5s linear;
+    -webkit-transition: visibility 1s linear, opacity 0.5s linear;
+    -o-transition: visibility 1s linear, opacity 0.5s linear;
+    &.animated {
+        opacity: 1;
+        visibility: visible;
+        z-index: 9;
+    }
+    &.active {
+        opacity: 1;
+        visibility: visible;
+        z-index: 10;
+    }
+    &.hidden {
+        opacity: 0;
+        visibility: hidden;
+        z-index: 9;
+    }
+    &:before, &:after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 20px;
+        height: 20px;
+        background: @white-color;
+        z-index: 10;
+    }
+    &:after {
+        top: auto;
+        bottom: 0;
+    }
+    .card-wrap {
+        padding: 30px 30px 30px 60px;
+        position: relative;
+        overflow-x: hidden;
+        height: 100%;
+    }
+    @media (max-width: 1072px) {
+        width: 115%;
+    }
+    @media (max-width: 1023px) {
+        position: relative;
+        margin: 15px 0;
+        left: 0;
+        top: 0;
+        width: auto;
+        height: auto;
+        opacity: 1;
+        visibility: visible;
+        .card-wrap {
+            padding: 30px 30px 30px 40px;
+            overflow: visible;
+            height: auto;
+        }
+        &:last-child {
+            margin-bottom: 50px;
+        }
+    }
+    @media (max-width: 560px) {
+        margin: 10px 0;
+        .card-wrap {
+            padding: 30px;
+        }
+        &:last-child {
+            margin-bottom: 10px;
+        }
+    }
+}
+
+/* content */
+.content {
+    margin: 0 0 60px 0;
+    position: relative;
+    &:last-child {
+        margin-bottom: 0;
+    }
+    .title {
+        margin: 0 0 15px 0;
+        padding: 0 0 5px 0;
+        position: relative;
+        font-size: @large-size;
+        color: @dark-color;
+        line-height: @large-size+4;
+        font-weight: 500;
+        &:before {
+            content: '';
+            position: absolute;
+            left: -12px;
+            top: 0;
+            width: 30px;
+            height: 30px;
+            background: -moz-linear-gradient(-45deg, @extra-active-color 0%, @extra2-active-color 100%);
+            background: -webkit-linear-gradient(-45deg, @extra-active-color 0%, @extra2-active-color 100%);
+            background: linear-gradient(135deg, @extra-active-color 0%, @extra2-active-color 100%);
+            .border-radius(30px);
+        }
+        &:after {
+            content: '';
+            position: absolute;
+            left: -60px;
+            bottom: -15px;
+            width: 95%;
+            height: 1px;
+            background: -moz-radial-gradient(left, ellipse cover, rgba(197,202,213,0.7) 0%, rgba(255,255,255,0) 70%);
+            background: -webkit-radial-gradient(left, ellipse cover, rgba(197,202,213,0.7) 0%, rgba(255,255,255,0) 70%);
+            background: radial-gradient(ellipse at left, rgba(197,202,213,0.7) 0%, rgba(255,255,255,0) 70%);
+        }
+    }
+}
+
+/*
+    4. Card - About
+*/
+
+/* 4.1 About */
+
+.info-list {
+    ul {
+        li {
+            display: inline-block;
+            width: 48%;
+            line-height: @line-height;
+            strong {
+                display: inline-block;
+                font-size: @small-size;
+                color: @dark-color;
+                font-weight: 500;
+                text-transform: uppercase;
+            }
+        }
+    }
+}
+
+/* 4.2 Services */
+
+.service-items {
+    font-size: 0;
+    &.border-line-v {
+        &:after {
+            margin: 0 0 0 -1px;
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 0;
+            width: 1px;
+            height: 100%;
+            background: -moz-radial-gradient(top, ellipse cover, rgba(197,202,213,0.7) 0%, rgba(255,255,255,0) 70%);
+            background: -webkit-radial-gradient(top, ellipse cover, rgba(197,202,213,0.7) 0%, rgba(255,255,255,0) 70%);
+            background: radial-gradient(ellipse at top, rgba(197,202,213,0.7) 0%, rgba(255,255,255,0) 70%);
+        }
+    }
+    .service-item {
+        text-align: left;
+        .icon {
+            margin: 0;
+            width: 60px;
+            height: 60px;
+            text-align: center;
+            font-size: @large-icon-size;
+            color: @active-color;
+            background: -moz-linear-gradient(-45deg, @extra-active-color 0%, @extra2-active-color 100%);
+            background: -webkit-linear-gradient(-45deg, @extra-active-color 0%, @extra2-active-color 100%);
+            background: linear-gradient(135deg, @extra-active-color 0%, @extra2-active-color 100%);
+            .border-radius(60px);
+            .ion, .fab, .fas {
+                display: block;
+                line-height: 60px;
+            }
+        }
+        .name {
+            margin: 15px 0 10px 0;
+            font-size: @small-size;
+            color: @dark-color;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+        p {
+            margin: 0;
+        }
+    }
+    @media (max-width: 560px) {
+        &.border-line-v {
+            &:after {
+                display: none;
+            }
+        }
+        .col {
+            &:after {
+                content: '';
+                position: absolute;
+                left: 0;
+                bottom: 0;
+                width: 100%;
+                height: 1px;
+                background: -moz-radial-gradient(left, ellipse cover, rgba(197,202,213,0.7) 0%, rgba(255,255,255,0) 70%);
+                background: -webkit-radial-gradient(left, ellipse cover, rgba(197,202,213,0.7) 0%, rgba(255,255,255,0) 70%);
+                background: radial-gradient(ellipse at left, rgba(197,202,213,0.7) 0%, rgba(255,255,255,0) 70%);
+            }
+        }
+    }
+}
+
+/* 4.3 Pricing */
+
+.pricing-items {
+    font-size: 0;
+    .pricing-item {
+        padding: 0 0 70px 0;
+        text-align: center;
+        .icon {
+            margin: 0 auto;
+            width: 40px;
+            height: 40px;
+            text-align: center;
+            font-size: @large-icon-size;
+            color: @active-color;
+            .ion, .fab, .fas {
+                display: block;
+                line-height: 40px;;
+            }
+        }
+        .name {
+            margin: 0 0 30px 0;
+            font-size: @small-size;
+            color: @dark-color;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+        .amount {
+            margin: 0 0 25px 0;
+            .number {
+                margin: 0;
+                position: relative;
+                display: inline-block;
+                vertical-align: middle;
+                font-size: 42px;
+                line-height: 26px;
+                font-weight: 500;
+                color: @dark-color;
+            }
+            .dollar, .period {
+                margin: 0 3px;
+                position: relative;
+                bottom: 7px;
+                display: inline-block;
+                vertical-align: top;
+                font-size: @large-size;
+                font-weight: 400;
+                color: @dark-color;
+            }
+            .period {
+                bottom: auto;
+                top: 7px;
+                vertical-align: bottom;
+                font-size: @small-size;
+                color: @default-color;
+            }
+        }
+        .feature-list {
+            ul {
+                li {
+                    padding: 5px 0;
+                    font-size: @default-size;
+                    color: @dark-color;
+                    &:last-child {
+                        border-bottom: none;
+                    }
+                    &.disable {
+                        text-decoration: line-through;
+                        opacity: 0.6;
+                    }
+                    strong {
+                        margin: 0 0 0 5px;
+                        padding: 0 5px;
+                        display: inline-block;
+                        vertical-align: middle;
+                        font-size: @extra-small-size;
+                        color: @dark-color;
+                        background: @extra-active-color;
+                        font-weight: 300;
+                        .border-radius(2px);
+                    }
+                }
+            }
+        }
+        .lnks {
+            .lnk {
+                float: none;
+                width: 100%;
+                display: block;
+            }
+        }
+        .speed-basic {
+            .transform(scaleX(-1));
+        }
+    }
+}
+
+/* 4.4 Fun Fact */
+
+.fact-items {
+    font-size: 0;
+    .fact-item {
+        position: relative;
+        text-align: center;
+        .icon {
+            margin: 0 auto;
+            width: 60px;
+            height: 60px;
+            text-align: center;
+            font-size: @large-icon-size;
+            color: @active-color;
+            .ion, .fab, .fas {
+                display: block;
+                line-height: 60px;
+            }
+        }
+        .name {
+            margin: 0;
+            font-size: @small-size;
+            color: @dark-color;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+    }
+}
+
+/* 4.5 Clients */
+
+.client-items {
+    font-size: 0;
+    text-align: center;
+    .client-item {
+        img {
+            max-width: 100%;
+            opacity: 0.4;
+        }
+    }
+}
+
+/*
+    5. Resume
+*/
+
+.resume-title, .skill-title {
+    padding: 0 0 20px 0;
+    position: relative;
+    &:after {
+        left: -20px;
+    }
+    .icon {
+        position: relative;
+        top: -15px;
+        float: left;
+        width: 40px;
+        height: 40px;
+        font-size: @large-icon-size;
+        color: @active-color;
+        background: @white-color;
+        .ion, .fab, .fas {
+            display: block;
+            line-height: 40px;
+        }
+    }
+    .name {
+        margin: 0 0 0 40px;
+        font-size: @small-size;
+        line-height: @small-size;
+        color: @dark-color;
+        font-weight: 500;
+        text-transform: uppercase;
+    }
+}
+
+/* 5.1 Resume */
+.resume-items {
+    .resume-item {
+        position: relative;
+        padding: 20px 0 20px 0;
+        &:after {
+            left: -20px;
+        }
+        &:active {
+            .date {
+                color: @active-color;
+                &:before {
+                    background: @active-color;
+                }
+            }
+        }
+        .date {
+            margin: 0 0 10px 0;
+            padding: 0;
+            position: relative;
+            display: inline-block;
+            font-size: @extra2-small-size;
+            line-height: @extra2-small-size+7;
+            color: @light-color;
+            font-weight: 500;
+            text-transform: uppercase;
+            .border-radius(4px);
+            &:before {
+                content: '';
+                position: absolute;
+                left: -25px;
+                top: 4px;
+                width: 9px;
+                height: 9px;
+                background: @light-color;
+                .border-radius(9px);
+            }
+        }
+        .name {
+            margin: 0;
+            font-size: @small-size;
+            color: @dark-color;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+        .company {
+            margin: 0 0 10px 0;
+            font-size: @extra2-small-size;
+            color: @extra-color;
+            font-weight: 300;
+            text-transform: uppercase;
+        }
+        p {
+            margin: 0;
+        }
+    }
+}
+
+/* 5.2 Skills */
+
+.skills-list {
+    ul {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        li {
+            position: relative;
+            padding: 20px 0;
+            &:after {
+                left: -20px;
+            }
+            .name {
+                margin: 0 0 8px 0;
+                font-size: @default-size;
+                line-height: @default-size;
+                color: @default-color;
+            }
+            .progress {
+                position: relative;
+                display: block;
+                width: 100%;
+                height: 4px;
+                background: @light-color;
+                .percentage {
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    width: 0%;
+                    height: 100%;
+                    background: @active-color;
+                    .transition(all 0.3s ease 0s);
+                }  
+            }
+        }
+    }
+}
+
+/*
+    6. Works
+*/
