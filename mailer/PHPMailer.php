@@ -479,4 +479,388 @@ class PHPMailer
      * @var string
      */
     public $DKIM_private = '';
+
+    /**
+     * DKIM private key string.
+     * 
+     * If set, takes precedence over '$DKIM_private'. 
+     * 
+     * @var string
+     */
+    public $DKIM_private_string = '';
+
+    /**
+     * Callback Action function name.
+     * 
+     * The function that handles the result of the send email action.
+     * It is called out by send() for each email sent.
+     * 
+     * Value can be any php callable: http://www.php.net/is_callable
+     * 
+     * Parameters:
+     *   bool $result           result of the send action
+     *   array   $to            email addresses of the recipients
+     *   array   $cc            cc email addresses
+     *   array   $bcc           bcc email addresses
+     *   string  $subject       the subject
+     *   string  $body          the email body
+     *   string  $from          email address of sender
+     *   string  $extra         extra information of possible use
+     *                          "smtp_transaction_id" => last smtp transaction id
+     * 
+     * @var string
+     */
+    public $action_function = '';
+
+    /**
+     * What to put in the X-Mailer header
+     * Options: An empty string for PHPMailer default, whitespace for none, or a string to use.
+     * 
+     * @var string
+     */
+    public $XMailer = '';
+
+    /**
+     * Which validator to use by default when validating email addresses.
+     * May be a callable to inject your own validator, but there are several built-in validators.
+     * The default validator uses PHP's FILTER_VALIDATE_EMAIL filter_var option. 
+     * 
+     * @see PHPMailer::validateAddress()
+     * 
+     * @var string|callable
+     */
+    public static $validator = 'php';
+
+    /**
+     * The instance of the SMTP sender class.
+     * 
+     * @var SMTP
+     */
+    protected $smtp;
+
+    /**
+     * The array of 'to' names and addresses.
+     * 
+     * @var array
+     */
+    protected $to = [];
+
+    /**
+     * The array of 'cc' names and addresses.
+     * 
+     * @var array
+     */
+    protected $cc = [];
+
+    /**
+     * The array of 'bcc' names and addresses.
+     * 
+     * @var array
+     */
+    protected $bcc = [];
+
+    /**
+     * The array of reply-to names and addresses.
+     * 
+     * @var array
+     */
+    protected $ReplyTo = [];
+
+    /**
+     * An array of all kinds of addresses.
+     * Includes all of $to, $cc, $bcc.
+     * 
+     * @see PHPMailer::$to 
+     * @see PHPMailer::$cc 
+     * @see PHPMailer::$bcc 
+     * 
+     * @var array
+     */
+    protected $all_recipients = [];
+
+    /**
+     * An array of names and addresses queued for validation.
+     * In send(), valid and non-duplicate entries are moved to $all_recipients
+     * and one of $to, $cc, or $bcc. 
+     * This array is used only for addresses with IDN.
+     * 
+     * @see PHPMailer::$to 
+     * @see PHPMailer::$cc 
+     * @see PHPMailer::$bcc 
+     * @see PHPMailer::$all_recipients 
+     * 
+     * @var array
+     */
+    protected $RecipientsQueue = [];
+
+    /**
+     * An array of reply-to names and addresses queued for validation.
+     * In send(), valid and non-duplicate entries are moved to $ReplyTo.
+     * This array is used only for addresses with IDN.
+     * 
+     * @see PHPMailer::$ReplyTo 
+     * 
+     * @var array
+     */
+    protected $ReplyToQueue = [];
+
+    /**
+     * The array of attachments.
+     * 
+     * @var array
+     */
+    protected $attachment = [];
+
+    /**
+     * The array of custom headers. 
+     * 
+     * @var array
+     */
+    protected $CustomHeader = [];
+
+    /**
+     * The most recent Message-ID (including angular brackets).
+     * 
+     * @var string
+     */
+    protected $lastMessageID = '';
+
+    /**
+     * The message's MIME type.
+     * 
+     * @var string
+     */
+    protected $message_type = '';
+
+    /**
+     * The array of MIME boundary strings.
+     * 
+     * @var array
+     */
+    protected $boundary = [];
+
+    /**
+     * The array of avaliable languages.
+     * 
+     * @var array
+     */
+    protected $language = [];
+
+    /**
+     * The number of errors encountered.
+     * 
+     * @var int
+     */
+    protected $error_count = 0;
+
+    /**
+     * The S/MIME certificate file path.
+     * 
+     * @var string
+     */
+    protected $sign_cert_file = '';
+
+    /**
+     * The S/MIME key file path.
+     * 
+     * @var string
+     */
+    protected $sign_key_file = '';
+
+    /**
+     * The optional S/MIME extra certificates ("CA Chain") file path.
+     * 
+     * @var string
+     */
+    protected $sign_extracerts_file = '';
+
+    /**
+     * The S/MIME password for the key.
+     * Used only if the key is encrypted.
+     * 
+     * @var string
+     */
+    protected $sign_key_pass = '';
+
+    /**
+     * Whether to throw exceptions for errors.
+     * 
+     * @var bool
+     */
+    protected $exceptions = false;
+
+    /**
+     * Unique ID used for messsage ID and boundaries.
+     * 
+     * @var string
+     */
+    protected $uniqueid = '';
+
+    /**
+     * The PHPMailer Version number.
+     * 
+     * @var string
+     */
+    const VERSION = '6.0.6';
+
+    /**
+     * Error severity: mesasge only, continue processing.
+     * 
+     * @var int
+     */
+    const STOP_MESSAGE = 0;
+
+    /**
+     * Error severity: message, likely ok to continue processing.
+     * 
+     * @var int
+     */
+    const STOP_CONTINUE = 1;
+
+    /**
+     * Error severity: message, plus full stop, critical error reached.
+     * 
+     * @var int
+     */
+    const STOP_CRITICAL = 2;
+
+    /**
+     * SMTP RFC standard line ending.
+     * 
+     * @var string
+     */
+    protected static $LE = "\r\n";
+
+    /**
+     * The maximum line length allowed by RFC 2822 section 2.1.1.
+     * 
+     * @var int
+     */
+    const MAX_LINE_LENGTH = 998;
+
+    /**
+     * The lower maximum line length allowed by RFC 2822 section 2.1.1.
+     * This length does NOT include the line break
+     * 76 means that lines will be 77 or 78 chars depending on whether
+     * the line break format is LF or CRLF; both are valid.
+     * 
+     * @var int
+     */
+    const STD_LINE_LENGTH = 76;
+
+    /**
+     * Constructor.
+     * 
+     * @param bool $exceptions Should we throw external exceptions?
+     */
+    public function __construct($exceptions = null)
+    {
+        if (null !== $exceptions) {
+            $this->exceptions = (bool) $exceptions;
+        }
+        // Pick an appropriate debug output format automatically
+        $this->Debugoutput = (strpos(PHP_SAPI, 'cli') !== false ? 'echo' : 'html');
+    }
+
+    /**
+     * Destructor.
+     */
+    public function __destruct()
+    {
+        // Close any open SMTP connection nicely
+        $this->smtpClose();
+    }
+
+    /**
+     * Call mail() in a safe_mode-aware fashion.
+     * Also, unless sendmail_path points to sendmail (or something that
+     * claims to be sendmail), don't pass params (not a perfect fix,
+     * but it will do).
+     * 
+     * @param string      $to      To
+     * @param string      $body    Message Body
+     * @param string      $header  Additional Header(s)
+     * @param string|null $params  Param
+     * 
+     * @return bool
+     */
+    private function mailPassthru($to, $subject, $body, $header, $params)
+    {
+        // Check overloading of mail function to avoid double-encoding
+        if (ini_get('mbstring.func_overload') & 1) {
+            $subject = $this->secureHeader($subject);
+        } else {
+            $subject = $this->encodeHeader($this->secureHeader($subject));
+        }
+        // Calling mail() with null params breaks
+        if ($this->UseSendmailOptions or null === $params) {
+            $result = @mail($to, $subject, $body, $header);
+        } else {
+            $result = @mail($to, $subject, $body, $header, $params);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Output debugging inifo via user-defined method.
+     * Only generates output if SMTP debug output is enabled (@see SMTP::$do_debug).
+     * 
+     * @see PHPMailer::$Debugoutput
+     * @see PHPMailer::$SMTPDebug
+     * 
+     * @param string $str
+     */
+    protected function edebug($str)
+    {
+        if ($this->SMTPDebug <= 0) {
+            return;
+        }
+        // Is this a PSR-3 logger?
+        if ($this->Debugoutput instanceof \Psr\Log\LoggerInterface) {
+            $this->Debugoutput->debug($str);
+
+            return;
+        }
+        // Avoid clash with built-in function names
+        if (!in_array($this->Debugoutput, ['error_log', 'html', 'echo']) and is_callable($this->Debugoutput)) {
+            call_user_func($this->Debugoutput, $str, $this->SMTPDebug);
+
+            return;
+        }
+        switch ($this->Debugoutput) {
+            case 'error_log':
+                // Don't output, just log
+                error_log($str);
+                break;
+            case 'html':
+                // Cleans up output a bit for a better looking, HTML-safe output
+                echo htmlentities(
+                    preg_replace('/[\r\n]+/', '', $str),
+                    ENT_QUOTES,
+                    'UTF-8'
+                ), "<br>\n";
+                break;
+            case 'echo':
+                default:
+                // Noramalize line breaks
+                $str = preg_replace('/\r\n|\r/ms', "\n", $str);
+                echo gmdate('Y-m-d H:i:s'),
+                "\t",
+                    // Trim trailing space
+                trim(
+                    // Indent for readability, except for trailing break
+                    str_replace(
+                        "\n",
+                        "\n                        \t                  ",
+                        trim($str)
+                    )
+                ),
+                "\n";
+        }
+    }
+
+    /**
+     * Sets message type to HTML or plain.
+     */
 }
