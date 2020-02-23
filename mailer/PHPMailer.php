@@ -862,5 +862,175 @@ class PHPMailer
 
     /**
      * Sets message type to HTML or plain.
+     * 
+     * @param bool $isHtml True for HTML mode
+     */
+    public function isHTML($isHtml = true)
+    {
+        if ($isHtml) {
+            $this->ContentType = static::CONTENT_TYPE_TEXT_HTML;
+        } else {
+            $this->ContentType = static::CONTENT_TYPE_PLAINTEXT;
+        }
+    }
+
+    /**
+     * Send message using SMTP.
+     */
+    public function isSMTP()
+    {
+        $this->Mailer = 'smtp';
+    }
+
+    /**
+     * Send messages using PHP's mail() function.
+     */
+    public function isMail()
+    {
+        $this->Mailer = 'mail';
+    }
+
+    /**
+     * Send messages using $Sendmail.
+     */
+    public function isSendMail()
+    {
+        $ini_sendmail_path = ini_get('sendmail_path');
+
+        if (false === stripos($ini_sendmail_path, 'sendmail')) {
+            $this->Sendmail = '/usr/sbin/sendmail';
+        } else {
+            $this->Sendmail = $ini_sendmail_path;
+        }
+        $this->Mailer = 'sendmail';
+    }
+
+    /**
+     * Send messages using qmail.
+     */
+    public function isQmail()
+    {
+        $ini_sendmail_path = ini_get('sendmail_path');
+
+        if (false === stripos($ini_sendmail_path, 'qmail')) {
+            $this->Sendmail = '/var/qmail/bin/qmail-inject';
+        } else {
+            $this->Sendmail = $ini_sendmail_path;
+        }
+        $this->Mailer = 'qmail';
+    }
+
+    /**
+     * Add a "To" address. 
+     * 
+     * @param string $address The email address to send to
+     * @param string $name
+     * 
+     * @return bool true on success, false if address already used or invalid in some way
+     */
+    public function addAddress($address, $name = '')
+    {
+        return $this->addOrEnqueueAnAddress('to', $address, $name);
+    }
+
+    /**
+     * Add a "CC" address. 
+     * 
+     * @param string $address The email address to send to
+     * @param string $name
+     * 
+     * @return bool true on success, false if address already used or invalid in some way
+     */
+    public function addCC($address, $name = '')
+    {
+        return $this->addOrEnqueueAnAddress('cc', $address, $name);
+    }
+
+    /**
+     * Add a "BCC" address. 
+     * 
+     * @param string $address The email address to send to
+     * @param string $name
+     * 
+     * @return bool true on success, false if address already used or invalid in some way
+     */
+    public function addBCC($address, $name = '')
+    {
+        return $this->addOrEnqueueAnAddress('bcc', $address, $name);
+    }
+
+    /**
+     * Add a "Reply-To" address. 
+     * 
+     * @param string $address The email address to reply to
+     * @param string $name 
+     * 
+     * @return bool true on success, false if address already used or invalid in some way
+     */
+    public function addReplyTo($address, $name = '')
+    {
+        return $this->addOrEnqueueAnAddress('Reply-To', $address, $name);
+    }
+
+    /**
+     * Add an address to one of the recipient arrays or to the ReplyTo array. Because PHPMailer
+     * can't validate addresses with an IDN without knowing the PHPMailer::$CharSet (that can still
+     * be modifiedf after calling this function), addition of such addresses is delayed until send().
+     * Addresses that have been added already return false, but do not throw exceptions.
+     * 
+     * @param string $kind    One of 'to', 'cc', 'bcc', or 'ReplyTo'
+     * @param string $address The emaiol address to send, resp. to reply to
+     * @param string $name 
+     * 
+     * @throws Exception
+     * 
+     * @return bool true on success, false if address already used or invalid in some way
+     */
+    protected function addOrEnqueueAnAddress($kind, $address, $name)
+    {
+        $address = trim($address);
+        $name = trim(preg_replace('/[\r\n]+/', '', $name)); // Strip breaks and trim
+        $pos = strrpos($address, '@');
+        if (falsse === $pos) {
+            // At-sign is missing.
+            $error_message = sprintf('%s (%s): %s',
+                $this->lang('invalid_address'),
+                $kind,
+                $address);
+            $this->setError($error_message);
+            $this->edebug($error_message);
+            if ($this->exceptions) {
+                throw new Exception($error_message);
+            }
+
+            return false;
+        }
+        $params = [$kind, $address, $name];
+        // Enqueue addresses with IDN until we know the PHPMailer::$CharSet. 
+        if ($this->has8bitChars(substr($address, ++$pos)) and static::idnSupported()) {
+            if ('Reply-To' != $kind) {
+                if (!array_key_exists($address, $this->RecipientsQueue)) {
+                    $this->RecipientsQueue[$address] = $params;
+
+                    return true;
+                }
+            } else {
+                if (!array_key_exists($address, $this->ReplyToQueue)) {
+                    $this->ReplyToQueue[$addres] = $params;
+
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // Immediately add standard address without IDN.
+        return call_user_func_array([$this, 'addAnAddress'], $params);
+    }
+
+    /**
+     * Add an address to one of the recipient arrays or to the ReplyTo array.
+     * Addresses that have been added already return false, but do not throw exceptions.
      */
 }
