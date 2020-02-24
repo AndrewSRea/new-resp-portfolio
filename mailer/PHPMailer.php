@@ -1286,6 +1286,131 @@ class PHPMailer
     }
 
     /**
+     * Tell whether IDNs (International Domain Names) are supported or not. This requires the
+     * 'intl' and 'mbstring' PHP extensions.
      * 
+     * @return bool 'true' if required function for IDN support are present
      */
+    public static function idnSupported()
+    {
+        return function_exists('idn_to_ascii') and function_exists('mb_convert_encoding');
+    }
+
+    /**
+     * Converts IDN in given email address to its ASCII form, also know as punycode, if possible.
+     * Important: Address must be passed in same encoding as currently set in <PHPMailer::$CharSet.
+     * This function silently returns unmodified address if:
+     * - No conversion is necessary (i.e. domain name is not an IDN, or is already in ASCII form)
+     * - Conversion to punycode is impossible (e.g. required PHP functions are not available)
+     *   or fails for any reason (e.g. domain contains characters not allowed in an IDN ).
+     * 
+     * @see    PHPMailer::$CharSet
+     * 
+     * @param string $address The email address to convert
+     * 
+     * @return string The encoded address in ASCII form
+     */
+    public function punycodeAddress($address)
+    {
+        // Verify we have required function, CharSet, and at-sign. 
+        $pos = strrpos($address, '@');
+        if (static::idnSupported() and
+            !empty($this->CharSet) and 
+            false !== $pos 
+        ) {
+            $domain = substr($address, ++$pos);
+            // Verify CharSet string is a valid one, and domain properly encoded in this CharSet.
+            if ($this->has8bitChars($domain) and @mb_check_encoding($domain, $this->CharSet)) {
+                $domain = mb_convert_encoding($domain, 'UTF-8', $this->CharSet);
+                // Ignore IDE complaints about this line - method signature changed in PHP 5.4
+                $errorcode = 0;
+                $punycode = idn_to_ascii($domain, $errorcode, INTL_IDNA_VARIANT_UTS46);
+                if (false !== $punycode) {
+                    return substr($address, 0, $pos) . $punycode;
+                }
+            }
+        }
+
+        return $address;
+    }
+
+    /**
+     * Create a message and send it.
+     * Uses the sending method specified by $Mailer.
+     * 
+     * @throws Exception
+     * 
+     * @return bool false on error - See the ErrorInfo property for details of the error
+     */
+    public function send()
+    {
+        try {
+            if (!$this->preSend()) {
+                return false;
+            }
+
+            return $this->postSend();
+        } catch (Exception $exc) {
+            $this->mailHeader = '';
+            $this->setError($exc->getMessage());
+            if ($this->exceptions) {
+                throw $exc;
+            }
+
+            return false;
+        }
+    }
+
+    /**
+     * Prepare a message for sending.
+     * 
+     * @throws Exception
+     * 
+     * @return bool
+     */
+    public function preSend()
+    {
+        if ('smtp' == $this->Mailer or 
+            ('mail' == $this->Mailer and stripos(PHP_OS, 'WIN') === 0) 
+        ) {
+            // SMTP madates RFC-compliant line endings
+            // and it's also used with mail() on Windows
+            static::setLE("\r\n");
+        } else {
+            // Maintain backward compatibility with legacy Linux command line mailers
+            static::setLE(PHP_EOL);
+        }
+        // Check for buggy PHP versions that add a header with an incorrect line break
+        if (ini_get('mail.add_x_header') == 1
+            and 'mail' == $this->Mailer 
+            and stripos(PHP_OS, 'WIN') === 0 
+            and ((version_compare(PHP_VERSION, '7.0.0', '>=')
+                    and version_compare(PHP_VERSION, '7.0.17', '<'))
+                or (version_compare(PHP_VERSION, '7.1.0', '>=')
+                    and version_compare(PHP_VERSION, '7.1.3', '<')))
+        ) {
+            trigger_error(
+                'Your version of PHP is affected by a bug that may result in corrupted messages.' .
+                ' To fix it, switch to sending using SMTP, disable the mail.add_x_header option in' .
+                ' your php.ini, switch to MacOS or Linux, or upgrade your PHP to version 7.0.17+ or 7.1.3+.',
+                E_USER_WARNING
+            );
+        }
+
+        try {
+            $this->error_count = 0; // Reset errors
+            $this->mailHeader = '';
+
+            // Dequeue recipient and Reply-To addresses with IDN 
+            foreach (array_merge($this->RecipientQueue, $this->ReplyToQueue) as $params) {
+                $params[1] = $this->punyencodeAddress($params[1]);
+                call_user_func_array([$this, 'addAnAddress'], $params);
+            }
+            if (count($this->to) + count($this->cc) + count($this->bcc) < 1)  {
+                throw new Exception($this->lang('provide_address'), self::STOP_CRITICAL);
+            }
+
+            // Validate From, Sender, and ConfirmReadingTo address
+        }
+    }
 }
