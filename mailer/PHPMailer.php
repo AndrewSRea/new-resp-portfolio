@@ -1310,7 +1310,7 @@ class PHPMailer
      * 
      * @return string The encoded address in ASCII form
      */
-    public function punycodeAddress($address)
+    public function punyencodeAddress($address)
     {
         // Verify we have required function, CharSet, and at-sign. 
         $pos = strrpos($address, '@');
@@ -1411,6 +1411,248 @@ class PHPMailer
             }
 
             // Validate From, Sender, and ConfirmReadingTo address
+            foreach (['From', 'Sender', 'ConfirmReadingTo'] as $address_kind) {
+                $this->$address_kind = trim($this->$address_kind);
+                if (empty($this->$address_kind)) {
+                    continue;
+                }
+                $this->$address_kind = $this->punyencodeAddress($this->$address_kind);
+                if(!static::ValidateAddress($this->$address_kind)) {
+                    $error_message = sprintf('%s (%s): %s',
+                        $this->lang('invalid_address'),
+                        $address_kind,
+                        $this->$address_kind);
+                    $this->setError($error_message);
+                    $this->edebug($error_message);
+                    if ($this->exceptions) {
+                        throw new Exception($error_message);
+                    }
+
+                    return false;
+                }
+            }
+
+            // Set whether the message is multipart/alternative
+            if ($this->alternativeExists()) {
+                $this->ContentType = static::CONTENT_TYPE_MULTIPART_ALTERNATIVE;
+            }
+
+            $this->setMessageType();
+            // Refuse to send an empty message unless we are specifically allowing it
+            if (!$this->AllowEmpty and empty($this->Body)) {
+                throw new Exception($this->lang('empty_message'), self::STOP_CRITICAL);
+            }
+
+            // Trim subject consistently
+            $this->Subject = trim($this->Subject);
+            // Create body before headers in case body makes changes to headers (e.g. altering transfer encoding)
+            $this->MIMEHeader = '';
+            $this->MIMEBody = $this->createBody();
+            // createBody may have added some headers, so retain them
+            $tempheaders = $this->MIMEHeeader;
+            $this->MIMEHeader = $this->createHeader();
+            $this->MIMEHeader .= $tempheaders;
+
+            // To capture the complete message when using mail(, create
+            // an extra header list which createHeader() doesn't fold in
+            if ('mail' == $this->Mailer) {
+                if (count($this->to) > 0) {
+                    $this->mailHeader .= $this->addrAppend('To', $this->to);
+                } else {
+                    $this->mailHeader .= $this->headerLine('To', 'undisclosed-recipients:;');
+                }
+                $this->mailHeader .= $this->headerLine(
+                    'Subject',
+                    $this->encodeHeader($this->secureHeader($this->Subject))
+                );
+            }
+
+            // Sign with DKIM if enabled
+            if (!empty($this->DKIM_domain)
+                and !empty($this->DKIM_selector)
+                and (!empty($this->DKIM_private_string)
+                    or (!empty($this->DKIM_private)
+                        and static::isPermittedPath($this->DKIM_private)
+                        and file_exists($this->DKIM_private)
+                    )
+                )
+            ) {
+                $header_dkim = $this->DKIM_Add(
+                    $this->MIMEHeader . $this->mailHeader,
+                    $this->encodeHeader($this->secureheader($this->Subject)),
+                    $this->MIMEBody
+                );
+                $this->MIMEHeader = rtrim($this->MIMEHeader, "\r\n ") . static::$LE . 
+                    static::normalizeBreaks($header_dkim) . static::$LE;
+            }
+
+            return true;
+        } catch (Exception $exc) {
+            $this->setError($exc->getMesssage());
+            if ($this->exceptions) {
+                throw $exc;
+            }
+
+            return false;
         }
     }
+
+    /**
+     * Actually send a message via the selected machanism.
+     * 
+     * @throws Exception
+     * 
+     * @return bool
+     */
+    public function postSend()
+    {
+        try {
+            // Choose the mailer and send through it
+            switch ($this->Mailer) {
+                case 'sendmail':
+                case 'qmail':
+                    return $this->sendmailSend($this->MIMEHeader, $this->MIMEBody);
+                case 'smtp':
+                    return $this->smtpSend($this->MIMEHeader, $this->MIMEBody);
+                case 'mail':
+                    return $this->mailSend($this->MIMEHeader, $this->MIMEBody);
+                default:
+                $sendMthod = $this->Mailer . 'Send';
+                if (method_exists($this, $sendMethod)) {
+                    return $this->$sendMethod($this->MIMEHeader, $this->MIMEBody);
+                }
+
+                return $this->mailSend($this->MIMEHeader, $this->MIMEBody);
+            }
+        } catch (Exception $exc) {
+            $this->setError($exc->getMessage());
+            $this->edebug($exc->getMessage());
+            if ($this->exceptions) {
+                throw $exc;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Send mail using the $Sendmail program. 
+     * 
+     * @see    PHPMailer::$Sendmail  
+     * 
+     * @param string $header The message headers
+     * @param string $body   The message body
+     * 
+     * @throws Exception
+     * 
+     * @return bool
+     */
+    protected function sendmailSend($header, $body)
+    {
+        // CVE-2016-10033, CVE-2016-10045: Don't pass -f if characters will be escaped.
+        if (!empty($this->Sender) and self::isShellSafe($this->Sender)) {
+            if ('qmail' == $this->Mailer) {
+                $sendmailFmt = '%s -f%s';
+            } else {
+                $sendmailFmt = '%s -oi -f%s -t';
+            }
+        } else {
+            if ('qmail' == $this->Mailer) {
+                $sendmailFmt = '%s';
+            } else {
+                $sendmailFmt = '%s -oi -t';
+            }
+        }
+
+        $sendmail = sprintf($sendmailFmt, escapeshellcmd($this->Sendmail), $this->Sender);
+
+        if ($this->SingleTo) {
+            foreach ($this->SingleToArray as $toAddr) {
+                $mail = @popen($sendmail, 'w');
+                if (!$mail) {
+                    throw new Exception($this->lang('execute') . $this->Sendmail, self::STOP_CRITICAL);
+                }
+                fwrite($mail, 'To: ' . $toAddr . "\n");
+                fwrite($mail, $header);
+                fwrite($mail, $body);
+                $result = pclose($mail);
+                $this->doCallback(
+                    ($result == 0),
+                    [$toAddr],
+                    $this->cc,
+                    $this->bcc,
+                    $this->Subject,
+                    $body,
+                    $this->From,
+                    []
+                );
+                if (0 !== $result) {
+                    throw new Exception($this->lang('execute') . $this->Sendmail, self::STOP_CRITICAL);
+                }
+            }
+        } else {
+            $mail = @popen($sendmail, 'w');
+            if (!$mail) {
+                throw new Exception($this->lang('execute') . $this->Sendmail, self::STOP_CRITICAL);
+            }
+            fwrite($mail, $header);
+            fwrite($mail, $body);
+            $result = pclose($mail);
+            $this->doCallback(
+                ($result == 0),
+                $this->to,
+                $this->cc,
+                $this->bcc,
+                $this->Subject,
+                $body,
+                $this->From,
+                []
+            );
+            if (0 !== $result) {
+                throw new Exception($this->lang('execute') . $this->Sendmail, self::STOP_CRITICAL);
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Fix CVE-2016-10033 and CVE-2016-10045 by disabling potentially unsafe shell characters.
+     * Note that escapeshellarg and escapeshellcmd are inadequate for our purposes, especially on Windows. 
+     * 
+     * @see https://github.com/PHPMailer/PHPMailer/issues/924 CVE-2016-10045 bug report
+     * 
+     * @param string $string The string to be validated
+     * 
+     * @return bool
+     */
+    protected static function isShellSafe($string)
+    {
+        // Future-proof
+        if (escapeshellcmd($string) !== $string
+            or !in_array(escapeshellarg($string), ["'$string'", "\"$string\""])
+        ) {
+            return false;
+        }
+
+        $length = strlen($string);
+
+        for ($i = 0; $i < $length; ++$i) {
+            $c = $string[$i];
+
+            // All other characters have a special meaning in at least one common shell, including = and +. 
+            // Full stop (.) has a special meaning in cmd.exe, but its impact should be negligible here.
+            // Note that this does permit non-Latin alphanumeric characters based on the curernt locale.
+            if (!ctype_alnum($c) && strpos('@_-.', $c) === false) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * 
+     */
+    
 }
