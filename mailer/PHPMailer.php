@@ -778,6 +778,7 @@ class PHPMailer
      * but it will do).
      * 
      * @param string      $to      To
+     * @param string      $subject Subject
      * @param string      $body    Message Body
      * @param string      $header  Additional Header(s)
      * @param string|null $params  Param
@@ -1016,7 +1017,7 @@ class PHPMailer
                 }
             } else {
                 if (!array_key_exists($address, $this->ReplyToQueue)) {
-                    $this->ReplyToQueue[$addres] = $params;
+                    $this->ReplyToQueue[$address] = $params;
 
                     return true;
                 }
@@ -1032,5 +1033,259 @@ class PHPMailer
     /**
      * Add an address to one of the recipient arrays or to the ReplyTo array.
      * Addresses that have been added already return false, but do not throw exceptions.
+     * 
+     * @param string $kind    One of 'to', 'cc', 'bcc', or 'ReplyTo'
+     * @param string $address The email address to send, resp. to reply to
+     * @param string $name 
+     * 
+     * @throws Exception
+     * 
+     * @return bool true on success, false if address already used or invalid in some way
+     */
+    protected function addAnAddress($kind, $address, $name = '')
+    {
+        if (!in_array($kind, ['to', 'cc', 'bcc', 'Reply-To'])) {
+            $error_message = sprintf('%s: %s',
+                $this->lang('Invalid recipient kind'),
+                $kind);
+            $this->setError($error_message);
+            $this->edebug($error_message);
+            if ($this->exceptions) {
+                throw new Exception($error_message);
+            }
+
+            return false;
+        }
+        if (!static::validateAddress($address)) {
+            $error_message = sprintf('%s (%s): %s',
+                $this->lang('invalid_address'),
+                $kind,
+                $address);
+            $this->setError($error_message);
+            $this->edebug($error_message);
+            if ($this->exceptions) {
+                throw new Exception($error_message);
+            }
+
+            return false;
+        }
+        if ('Reply-To' != $kind) {
+            if (!array_key_exists(strtolower($address), $this->all_recipients)) {
+                $this->{$kind}[] = [$address, $name];
+                $this->all_recipients[strtolower($address)] = true;
+
+                return true;
+            }
+        } else {
+            if (!array_key_exists(strtolower($address), $this->ReplyTo)) {
+                $this->ReplyTo[strtolower($address)] = [$address, $name];
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Parse and validate a string containing one or more RFC822-style comma-separated email addresses
+     * of the form "display name <address>" into an array of name/address pairs.
+     * Uses the imap_rfc822_parse_adrlist function if the IMAP extension is available.
+     * Note that quotes in the name part are removed.
+     * 
+     * @see    http://www.andrew.cmu.edu/user/agreen1/testing/mrbs/web/Maiil/RFC822.php A more careful implementation.
+     * 
+     * @param string $addrstr The address list string
+     * @param bool   $usemap Whether to use the IMAP extension to parse the list
+     * 
+     * @return array
+     */
+    public static function parseAddresses($addrstr, $useimap = true)
+    {
+        $addresses = [];
+        if ($usemap and function_exists('imap_rfc822_parse_adrlist')) {
+            // Use this built-in parser if it's available
+            $list = imap_rfc_parse_adrlist($addrstr, '');
+            foreach ($list as $address) {
+                if ('.SYNTAX_ERROR.' != $address->host) {
+                    if (static::validateAddress($address->mailbox . '@' . $address->host)) {
+                        $addresses[] = [
+                            'name' => (property_exists($address, 'personal') ? $address->personal : ''),
+                            'address' => $address->mailbox . '@' . $address->host,
+                        ];
+                    }
+                }
+            }
+        } else {
+            // Use this simpler parser
+            $list = explode(',', $addrstr);
+            foreach ($list as $address) {
+                $address = trim($address);
+                // Is there a separate name part?
+                if (strpos($address, '<') === false) {
+                    // No separate name, just use the whole thing
+                    if (static::validateAddress($address)) {
+                        $addresses[] = [
+                            'name' => '',
+                            'address' => $address,
+                        ];
+                    }
+                } else {
+                    list($name, $email) = explode('<', $address);
+                    $email = trim(str_replace('>', '', $email));
+                    if (static::validateAddress($email)) {
+                        $addresses[] = [
+                            'name' => trim(str_replace(['"', "'"], '', $name)),
+                            'address' => $email,
+                        ];
+                    }
+                }
+            }
+        } 
+
+        return $addresses;
+    }
+
+    /**
+     * Set the From and FromName properties.
+     * 
+     * @param string $address
+     * @param string $name 
+     * @param bool   $auto   Whether to also set the Sender address, defaults to true
+     * 
+     * @throws Exception
+     * 
+     * @return bool
+     */
+    public function setFrom($address, $name = '', $auto = true)
+    {
+        $address = trim($address);
+        $name = trim(preg_replace('/[\r\n]+/', '', $name)); // Strip breaks and trim
+        // Don't validate now addresses with IDN. Will be done in send().
+        $pos = strrpos($address, '@');
+        if (false === $pos or
+            (!$this->has8bitChars(substr($address, ++$pos)) or !static::idnSupported()) and 
+            !static::validateAddress($address)) {
+            $error_message = sprintf('%s (From): %s', 
+                $this->lang('innvalid_address'),
+                $address);
+            $this->setError($error_message);
+            $this->edebug($error_message);
+            if ($this->excepotions) {
+                throw new Exception($error_message);
+            }
+
+            return false;
+        }
+        $this->From = $address;
+        $this->FromName = $name;
+        if ($auto) {
+            if (empty($this->Sender)) {
+                $this->Sender = $address;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Return the Message-ID header of the last email.
+     * Technically this is the value from the last time the headers were created,
+     * but it's also the message ID of the last sent message except in
+     * pathological cases.
+     * 
+     * @return string
+     */
+    public function getLastMessageID()
+    {
+        return $this->lastMessageID;
+    }
+
+    /**
+     * Check that a string looks like an email address. 
+     * Validation patterns supported:
+     * * 'auto' Pick best pattern automatically:
+     * * 'pcre8' Use the qsuiloople.com pattern, requires PCRE > 8.0;
+     * * 'pcre' Use old PCRE implementation;
+     * * 'php' Use PHP built-in FILTER_VALIDATE_EMAIL;
+     * * 'html5' Usse the pattern given by the HTML5 spec for 'email' type form input elements.
+     * * 'noregex' Don't use a regex: super fast, really dumb.
+     * Alternatiively, you may pass in a callable to inject your own valiidator, for example:
+     * 
+     * ```php
+     * PHPMailer::validateAddress('user@example.com', function($address) {
+     *      return (strpos($address, '@') !== false)
+     * });
+     * ```
+     * 
+     * You can also set the PHPMailer::$validator sstatic to a callable, allowing built-in methods to use your validator.
+     * 
+     * @param string          $addres        The email address to check
+     * @param string|callable $patternselect Which pattern to use
+     * 
+     * @return bool
+     */
+    public static function validateAddress($address, $patternselect = null)
+    {
+        if (null === $patternselect) {
+            $patternselect = static::$validator;
+        }
+        if (is_callable($patternselect)) {
+            return call_user_func($patternselect, $address);
+        }
+        // Reject line breaks in addressses; it's valid RFC5322, but not RFC5321
+        if (strpos($address, "\n") !== false or strpos($address, "\r") !== false) {
+            return false;
+        }
+        switch ($patternselect) {
+            case 'pcre': // Kept for BC
+            case 'pcre8':
+                /*
+                 * A more complex and more permissive version of the RFC5322 regex on which FILTER_VALIDATE_EMAIL
+                 * is based.
+                 * In addition to the address allowed by filter_var, also permits:
+                 * * dotless domains: 'a@b'
+                 * * comments: '1234 @ local(blah) .machine .example'
+                 * * quoted elements: `'"test blah"@example.org'`
+                 * * numeric TLDs: 'a@b.123'
+                 * * unbracketed IPv4 literals: 'a@192.168.0.1'
+                 * * IPv6 literals: 'first.last@[IPv6:a1::]'
+                 * Not all of these will necessarily work for sending!
+                 * 
+                 * @see       http://squiloople.com/2009/12/20/email-address-validation/
+                 * @copyright 2009-2010 Michael Rushton
+                 * Feel free to use and redistribute this code. But please keep this copyright notice.
+                 */
+                return (bool) preg_match(
+                    '/^(?!(?>(?1)"?(?>\\\[ -~]|[^"])"?(?1)){255,})(?!(?>(?1)"?(?>\\\[ -~]|[^"])"?(?1)){65,}@)' .
+                    '((?>(?>(?>((?>(?>(?>\x0D\x0A)?[\t ])+|(?>[\t ]*\x0D\x0A)?[\t ]+)?)(\((?>(?2)' .
+                    '(?>[\x01-\x08\x0B\x0C\x0E-\'*-\[\]-\x7F]|\\\[\x00-\x7F]|(?3)))*(?2)\)))+(?2))|(?2))?)' .
+                    '([!#-\'*+\/-9=?^-~-]+|"(?>(?2)(?>[\x01-\x08\x0B\x0C\x0E-!#-\[\]-\x7F]|\\\[\x00-\x7F]))*' .
+                    '(?2)")(?>(?1)\.(?1)(?4))*(?1)@(?!(?1)[a-z0-9-]{64,})(?1)(?>([a-z0-9](?>[a-z0-9-]*[a-z0-9])?)' .
+                    '(?>(?1)\.(?!(?1)[a-z0-9-]{64,})(?1)(?5)){0,126}|\[(?:(?>IPv6:(?>([a-f0-9]{1,4})(?>:(?6)){7}' .
+                    '|(?!(?:.*[a-f0-9][:\]]){8,})((?6)(?>:(?6)){0,6})?::(?7)?))|(?>(?>IPv6:(?>(?6)(?>:(?6)){5}:' .
+                    '|(?!(?:.*[a-f0-9]:){6,})(?8)?::(?>((?6)(?>:(?6)){0,4}):)?))?(25[0-5]|2[0-4][0-9]|1[0-9]{2}' .
+                    '|[1-9]?[0-9])(?>\.(?9)){3}))\])(?1)$/isD',
+                    $address
+                );
+            case 'html5':
+                /*
+                 * This is the pattern used in the HTML5 spec for validation of 'email' type form input elements.
+                 * 
+                 * @see htp://www.whatwg.org/specs/web-apps/current-work/#e-mail-state-(type=email)
+                 */
+                return (bool) preg_match(
+                    '/^[a-zA-Z0-9.!#$%&\'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}' .
+                    '[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/sD',
+                    $address
+                );
+            case 'php':
+            default:
+                return (bool) filter_var($address, FILTER_VALIDATE_EMAIL);
+        }
+    }
+
+    /**
+     * 
      */
 }
