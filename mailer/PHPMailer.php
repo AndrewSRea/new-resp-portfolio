@@ -1652,7 +1652,330 @@ class PHPMailer
     }
 
     /**
+     * Check whether a file path is of a permitted type.
+     * Used to reject URLs and phar files from functions that access local file paths,
+     * such as addAttachment.
      * 
+     * @param string $path A relative or absolute path to a file.
+     * 
+     * @return bool
      */
-    
+    protected static function isPermittedPath($path)
+    {
+        return !preg_match('#^[a-z]+://#i', $path);
+    }
+
+    /**
+     * Send mail using the PHP mail() function. 
+     * 
+     * @see    http://www.php.net/manual/en/book.mail.php
+     * 
+     * @param string $header The message headers
+     * @param string $body   The message body
+     * 
+     * @throws Exception
+     * 
+     * @return bool
+     */
+    protected function mailSend($header, $body)
+    {
+        $toArr = [];
+        foreach ($this->to as $toaddr) {
+            $toArr[] = $this->addFormat($toaddr);
+        }
+        $to = implode(', ', $toArr);
+
+        $params = null;
+        // This sets the SMTP envelope sender which gets turned into a return-path header by the receiver
+        if (!empty($this->Sender) and static::validateAddress($this->Sender)) {
+            // A space after '-f' is optional, but there is a long history of its presence
+            // causing problems, so we son't use one
+            // Exim docs: http://www.exim.org/exim-html-current/doc/html/spec_html/ch-the_exim_command_line.html
+            // Sendmail docs: http:www.sendmail.org/~ca/email.man/sendmail.html 
+            // Qmail docs: http://www.qmail.org/man/man8/qmail-inject.html
+            // Example problem: https://www.drupal.org/node/1057954
+            // CVE-2016-10033, CVE-2016-10045: Don't pass -f if characters will be escaped.
+            if (self::isShellSafe($this->Sender)) {
+                $params = sprintf('-f%s', $this->Sender);
+            }
+        }
+        if (!empty($this->Sender) and static::validateAddress($this->Sender)) {
+            $old_from = ini_get('sendmail_from');
+            ini_set('sendmail_from', $this->Sender);
+        }
+        $result = false;
+        if ($this->SingleTo and count($toArr) > 1) {
+            foreach ($toArr as $toAddr) {
+                $result = $this->mailPassthru($toAddr, $this->Subject, $body, $header, $params);
+                $this->doCallback($result, [$toAddr], $this->cc, $this->bcc, $this->Subject, $body, $this->From, []);
+            }
+        } else {
+            $result = $this->mailPassthru($to, $this->Subject, $body, $header, $params);
+            $this->doCallback($result, $this->to, $this->cc, $this->bcc, $this->Subject, $body, $this->From, []);
+        }
+        if (isset($old_from)) {
+            ini_set('sendmail_from', $old_from);
+        }
+        if (!$result) {
+            throw new Exception($this->lang('instantiate'), self::STOP_CRITICAL);
+        }
+
+        return true;
+    }
+
+    /**
+     * Get an instance to use for SMTP operations.
+     * Override this function to load your own SMTP implementation,
+     * or set one with setSMTPInstance.
+     * 
+     * @return SMTP
+     */
+    public function getSMTPInstance()
+    {
+        if (!is_object($this->smtp)) {
+            $this->smtp = new SMTP();
+        }
+
+        return $this->smtp;
+    }
+
+    /**
+     * Provide an instance to use for SMTP operations.
+     * 
+     * @param SMTP $smtp
+     * 
+     * @return SMTP
+     */
+    public function setSMTPInstance(SMTP $smtp)
+    {
+        $this->smtp = $smtp;
+
+        return $this->smtp;
+    }
+
+    /**
+     * Send mail via SMTP.
+     * Returns false if there is a bad MAIL FROM, RCPT, or DATA input. 
+     * 
+     * @see PHPMailer::setSMTPInstance() to use a different class.
+     * 
+     * @uses \PHPMailer\PHPMailer\SMTP
+     * 
+     * @param string $header The message headers
+     * @param string $body   The message body 
+     * 
+     * @throws Exception
+     * 
+     * @return bool
+     */
+    protected function smtpSend($header, $body)
+    {
+        $bad_rcpt = [];
+        if (!$this->smtpConnect($this->SMTPOptions)) {
+            throw new Exception($this->lang('smtp_connect_failed'), self::STOP_CRITICAL);
+        }
+        // Sender already validated in preSend()
+        if ('' == $this->Sender) {
+            $smtp_from = $this->From;
+        } else {
+            $smtp_from = $this->Sender;
+        }
+        if (!$this->smtp->mail($smtp_from)) {
+            $this->setError($this->lang('from_failed') . $smtp_from . ' : ' . implode(',', $this->smtp->getError()));
+            throw new Exception($this->ErrorInfo, self::STOP_CRITICAL);
+        }
+
+        $callbacks = [];
+        // Attempt to send to all recipients
+        foreach ([$this->to, $this->cc, $this->bcc] as $togroup) {
+            foreach ($togroup as $to) {
+                if (!$this->smtp->recipient($to[0])) {
+                    $error = $this->smtp->getError();
+                    $bad_rcpt[] = ['to' => $to[0], 'error' => $error['detail']];
+                    $isSent = false;
+                } else {
+                    $isSent = true;
+                }
+
+                $callbacks[] = ['issent'=>$isSent, 'to'=>$to[0]];
+            }
+        }
+
+        // Only send the DATA command if we have viable recipients
+        if ((count($this->all_recipients) > count($bad_rcpt)) and !$this->smtp->data($header . $body)) {
+            throw new Exception($this->lang('data_not_accepted'), self::STOP_CRITICAL);
+        }
+
+        $smtp_transaction_id = $this->smtp->getLastTransactionID();
+
+        if ($this->SMTPKeepAlive) {
+            $this->smtp->reset();
+        } else {
+            $this->smtp->quit();
+            $this->smtp->close();
+        }
+
+        foreach ($callbacks as $cb) {
+            $this->doCallback(
+                $cb['issent'],
+                [$cb['to']],
+                [],
+                [],
+                $this->Subject,
+                $body,
+                $this->From,
+                ['smtp_transaction_id' => $smtp_transaction_id]
+            );
+        }
+
+        // Create error message for any bad addresses
+        if (count($bad_rcpt) > 0) {
+            $errstr = '';
+            foreach ($bad_rcpt as $bad) {
+                $errstr .= $bad['to'] . ': ' . $bad['error'];
+            }
+            throw new Exception(
+                $this->lang('recipients_failed') . $errstr,
+                self::STOP_CONTINUE
+            );
+        }
+
+        return true;
+    }
+
+    /**
+     * Initiate a connection to an SMTP server.
+     * Returns false if the operation failed.
+     * 
+     * @param array $options An array of options compatible with stream_context_create() 
+     * 
+     * @throws Exception
+     * 
+     * @uses \PHPMailer\PHPMailer\SMTP
+     * 
+     * @return bool
+     */
+    public function smtpConnect($options = null)
+    {
+        if (null === $this->smtp) {
+            $this->smtp = $this->getSMTPInstance();
+        }
+
+        // If no options are provided, use whatever is set in the instance
+        if (null === $options) {
+            $options = $this->SMTPOptions;
+        }
+
+        // Already connected?
+        if ($this->smtp->connected()) {
+            return true;
+        }
+
+        $this->smtp->setTimeout($this->Timeout);
+        $this->smtp->setDebugLevel($this->SMTPDebug);
+        $this->smtp->setDebugOutput($this->Debugoutput);
+        $this->smtp->setVerp($this->do_verp);
+        $hosts = explode(';', $this->Host);
+        $lastexception = null;
+
+        foreach ($hosts as $hostentry) {
+            $hostinfo = [];
+            if (!preg_match(
+                '/^((ssl|tls):\/\/)*([a-zA-Z0-9\.-]*|\[[a-fA-F0-9:]+\]):?([0-9]*)$/',
+                trim($hostentry),
+                $hostinfo
+            )) {
+                static::edebug($this->lang('connect_host') . ' ' . $hostentry);
+                // Not a valid host entry
+                continue;
+            }
+            // $hostinfo[2]: optional ssl or tls prefix
+            // $hostinfo[3]: the hostname
+            // $hostinfo[4]: optional port number
+            // The host string prefix can temporarily override the current setting for SMTPSecure
+            // If it's not specified, the default value is used
+
+            // Check the host name is a valid name or IP address before trying to use it
+            if (!static::isValidHost($hostinfo[3])) {
+                static::edebug($this->lang('connect_host') . ' ' . $hostentry);
+                continue;
+            }
+            $prefix = '';
+            $secure = $this->SMTPSecure;
+            $tls = ('tls' == $this->SMTPSecure);
+            if ('ssl' == $hostinfo[2] or ('' == $hostinfo[2] and 'ssl' == $this->SMTPSecure)) {
+                $prefix = 'ssl://';
+                $tls = false; // Can't have SSL and TLS at the same time
+                $secure = 'ssl';
+            } else if ('tls' == $hostinfo[2]) {
+                $tls = true;
+                // tls doesn't use a prefix
+                $secure = 'tls';
+            }
+            // Do we need the OpenSSL extension?
+            $sslext = defined('OPENSSL_ALGO_SHA256');
+            if ('tls' === $secure or 'ssl' === $secure) {
+                // Check for an OpenSSL constant rather than using extension_loaded, which is sometimes disabled
+                if (!$sslext) {
+                    throw new Exception($this->lang('extension_missing') . 'openssl', self::STOP_CRITICAL);
+                }
+            }
+            $host = $hostinfo[3];
+            $port = $this->Port;
+            $tport = (int) $hostinfo[4];
+            if ($tport > 0 and $tport < 65536) {
+                $port = $tport;
+            }
+            if ($this->smtp->connect($prefix . $host, $port, $this->Timeout, $options)) {
+                try {
+                    if ($this->Helo) {
+                        $hello = $this->Helo;
+                    } else {
+                        $hello = $this->serverHostname();
+                    }
+                    $this->smtp->hello($hello);
+                    // Automatically enable TLS encryption if:
+                    // * it's not disabled
+                    // * we have openssl extension
+                    // * we are not already using SSL
+                    // * the server offers STARTTLS
+                    if ($this->SMTPAutoTLS and $sslext and 'ssl' != $secure and $this->smtp->getServerExt('STARTTLS')) {
+                        $tls = true;
+                    }
+                    if ($tls) {
+                        if ($this->smtp->startTLS()) {
+                            throw new Exception($this->lang('connect_host'));
+                        }
+                        // We must resend EHLO after TLS negotiation
+                        $this->smtp->hello($hello);
+                    }
+                    if ($this->SMTPAuth) {
+                        if ($this->smtp->authenticate(
+                            $this->Username,
+                            $this->Password,
+                            $this->AuthType,
+                            $this->oauth
+                        )
+                        ) {
+                            throw new Exception($this->lang('authenticate'));
+                        }
+                    }
+                    return true;
+                } catch (Exception $exc) {
+                    $lastexception = $exc;
+                    $this->debug($exc->getMessage());
+                    // We must have connected, but then failed TLS or Auth, so close connection nicely
+                    $this->smtp->quit();
+                }
+            }
+        }
+        // If we get here, all connection attempts have failed, so close connection hard
+        $this->smtp->close();
+        // As we've caught all exceptions, just report whatever the last one was
+        if ($this->exceptions and null !== $lastexception) {
+            throw $lastexception;
+        }
+
+        return false;
+    }
 }
