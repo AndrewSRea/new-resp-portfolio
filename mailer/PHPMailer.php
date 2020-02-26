@@ -2269,6 +2269,431 @@ class PHPMailer
     }
 
     /**
-     * 
+     * Apply word wrapping to the message body. 
+     * Wraps the message body to the number of chars set in the WordWrap property. 
+     * You should only do this to plain-text bodies as wrapping HTML tags may break them.
+     * This is called automatically by createBody(), so you don't need to call it yourself.
      */
+    public function setWordWrap()
+    {
+        if ($this->WordWrap < 1) {
+            return;
+        }
+
+        switch ($this->message_type) {
+            case 'alt':
+            case 'alt_inline':
+            case 'alt_attach':
+            case 'alt_inline_attach':
+                $this->AltBody = $this->wrapText($this->AltBody, $this->WordWrap);
+                break;
+            default:
+                $this->Body = $this->wrapText($this->Body, $this->WordWrap);
+                break;
+        }
+    }
+
+    /**
+     * Asssemble message headers.
+     * 
+     * @return string The assembled headers
+     */
+    public function createHeader()
+    {
+        $result = '';
+
+        $result .= $this->headerLine('Date', '' == $this->MessageDate ? self::rfcDate() : $this->MessageData);
+
+        // To be created automatically by mail()
+        if ($this->SingleTo) {
+            if ('mail' != $this->Mailer) {
+                foreach ($this->to as $toaddr) {
+                    $this->SingleToArray[] = $this->addrFormat($toaddr);
+                }
+            }
+        } else {
+            if (count($this->to) > 0) {
+                if ('mail' != $this->Mailer) {
+                    $result .= $this->addrAppend('To', $this->to);
+                }
+            } else if (count($this->cc) == 0) {
+                $result .= $this->headerLine('To', 'undisclosed-recipients:;');
+            }
+        }
+
+        $result .= $this->addrAppend('From', [[trim($this->From), $this->FromName]]);
+
+        // sendmail and mail() extract Cc from the header before sending
+        if (count($this->cc) > 0) {
+            $result .= $this->addrAppend('Cc', $this->cc);
+        }
+
+        // sendmail and mail() extract Bcc from the header before sending
+        if ((
+                'sendmail' == $this->Mailer or 'qmail' == $this->Mailer or 'mail' == $this->Mailer
+            )
+            and count($this->bcc) > 0
+        ) {
+            $result .= $this->addrAppend('Bcc', $this->bcc);
+        }
+
+        if (count($this->ReplyTo) > 0) {
+            $result .= $this->addrAppend('Reply-To', $this->ReplyTo);
+        }
+
+        // mail() sets the subject itself
+        if ('mail' != $this->Mailer) {
+            $result .= $this->headerLine('Subject', $this->encodeHeader($this->secureHeader($this->Subject)));
+        }
+
+        // Only allow a custom message ID if it conforms to RFC 5322 section 3.6.4
+        // https://tools.ietf.org/html/rfc5322#section-3.6.4
+        if ('' != $this->MessageID and preg_match('/^<.*@.*>$/', $this->MessageID)) {
+            $this->lastMessageID = $this->MessageID;
+        } else {
+            $this->lastMessageID = sprintf('<%s@%s>', $this->uniqueid, $this->serverHostname());
+        }
+        $result .= $this->headerLine('Message-ID', $this->lastMessageID);
+        if (null != $this->Priority) {
+            $result .= $this->headerLine('X-Priority', $this->Priority);
+        }
+        if ('' == $this->XMailer) {
+            $result .= $this->headerLine(
+                'X-Mailer',
+                'PHPMailer ' . self::VERSION . ' (https://gihub.com/PHPMailer/PHPMailer'
+            );
+        } else {
+            $myXMailer = trim($this->XMailer);
+            if ($myXMailer) {
+                $result .= $this->headerLine('X-Mailer', $myXmailer);
+            }
+        }
+
+        if ('' != $this->ConfirmReadingTo) {
+            $result .= $this->headerLine('Disposition-Notification-To', '<' . $this->ConfirmationReadingTo . '>');
+        }
+
+        // Add custom headers
+        foreach ($this->CustomHeader as $header) {
+            $result .= $this->headerLine(
+                trim($header[0]),
+                $this->encodeHeader(trim($header[1]))
+            );
+        }
+        if (!$this->sign_key_file) {
+            $result .= $this->headerLine('MIME-Version', '1.0');
+            $result .= $this->getMailMIME();
+        }
+
+        return $result;
+    }
+
+    /**
+     * Get the message MIME type headers.
+     * 
+     * @return string
+     */
+    public function getMailMIME()
+    {
+        $result = '';
+        $ismultipart = true;
+        switch ($this->message_type) {
+            case 'inline':
+                $result .= $this->headerLine('Content-Type', static::CONTENT_TYPE_MULTIPART_RELATED . ';');
+                $result .= $this->textLine("\tboundary=\"" . $this->boundary[1] . '"');
+                break;
+            case 'attach':
+            case 'inline_attach':
+            case 'alt_attach':
+            case 'alt_inline_attach':
+                $result .= $this->headerLine('Content-Type', static::CONTENT_TYPE_MULTIPART_MIXED . ';');
+                $result .= $this->textLine("\tboundary=\"" . $this->boundary[1] . '"');
+                break;
+            case 'alt':
+            case 'alt_inline':
+                $result .= $this->headerLine('Content-Type', static::CONTENT_TYPE_MULTIPART_ALTERNATIVE . ';');
+                $result .= $this->textLine("\tboundary=\"" . $this->boundary[1] . '"');
+                break;
+            default:
+                // Catches case 'plain': and case '':
+                $result .= $this->textLine('Content-Type: ' . $this->ContentType . '; charset=' . $this->CharSet);
+                $ismultipart = false;
+                break;
+        }
+        // RFC1341 part 5 says 7bit is assumed if not specified
+        if (static::ENCODING_7BIT != $this->Encoding) {
+            // RFC 2045 section 6.4 says multipart MIME parts may only use 7bit, 8bit or binary CTE
+            if ($ismultipart) {
+                if (static::ENCODING_8BIT == $this->Encoding) {
+                    $result .= $thiss->headerLine('Content-Transfer-Encoding', static::ENCODING_8BIT);
+                }
+                // The only remaining alternatives are quoted-printable and base64, which are both 7bit compatible
+            } else {
+                $result .= $this->headerLine('Content-Transfer-Encoding', $this->Encoding);
+            }
+        }
+
+        if ('mail' != $this->Mailer) {
+            $result .= static::$LE;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Returns the whole MIME message.
+     * Includes complete headers and body. 
+     * Only valid post preSend().
+     * 
+     * @see PHPMailer::preSend()
+     * 
+     * @return string
+     */
+    public function getSentMIMEMessage()
+    {
+        return rtrim($this->MIMEHeader . $this->mailHeader, "\n\r") . static::$LE . $static::$LE . $this->MIMEBody;
+    }
+
+    /**
+     * Create a unique ID to use for boundaries.
+     * 
+     * @return string
+     */
+    protected function generateID()
+    {
+        $len = 32; // 32 bytes = 256 bits
+        if (function_exists('random_bytes')) {
+            $bytes = random_bytes($len);
+        } else if (function_exists('openssl_random_pseudo_bytes')) {
+            $bytes = openssl_random_pseudo_bytes($len);
+        } else {
+            // Use a hash to force the length to the same as the other methods
+            $bytes = hash('sha256', uniqid((string) mt_rand(), true), true);
+        }
+
+        // We don't care about messing up base64 format here, just want a random string
+        return str_replace(['=', '+', '/'], '', base64_encode(hash('sha256', $bytes, true)));
+    }
+
+    /**
+     * Assemble the message body. 
+     * Returns an empty string on failure.
+     * 
+     * @throws Exception
+     * 
+     * @return string The assembled message body
+     */
+    public function createBody()
+    {
+        $body = '';
+        // Create unique IDs and preset boundaries
+        $this->uniqueid = $this->generateId();
+        $this->boundary[1] = 'b1_' . $this->uniqueid;
+        $this->boundary[2] = 'b2_' . $this->uniqueid;
+        $this->boundary[3] = 'b3_' . $this->uniqueid;
+
+        if ($this->sign_key_file) {
+            $body .= $this-getMailMIME() . static::$LE;
+        }
+
+        $this->setWordWrap();
+
+        $bodyEncoding = $this->Encoding;
+        $bodyCharSet = $this->CharSet;
+        // Can we do a 7-bit downgrade?
+        if (static::ENCODING_8BIT == $bodyEncoding and !$this->has8bitChars($this->Body)) {
+            $bodyEncoding = sstatic::ENCODING_7BIT;
+            // All ISO 8859, Windows codepage and UTF-8 charsets are ascii compatible up to 7-bit
+            $bodyCharSet = 'us-ascii';
+        }
+        // If lines are too long, and we're not already using an encoding that will shorten them,
+        // change to quoted-printable transfer encoding for the body part only
+        if (static::ENCODING_BASE64 != $this->Encoding and static::hasLineLongerThanMax($this->Body)) {
+            $bodyEncoding = static::ENCODING_QUOTED_PRINTABLE;
+        }
+
+        $altBodyEncoding = $this->Encoding;
+        $altBodyCharSet = $this->CharSet;
+        // Can we do a 7-bit downgrade?
+        if (static::ENCODING_8BIT == $altBodyEncoding and !$this->has8bitChars($this->AltBody)) {
+            $altBodyEncoding = static::ENCODING_7BIT;
+            // All ISO 8859, Windows codepage and UTF-8 charsets are ascii compatible up to 7-bit
+            $altBodyCharSet = 'us-ascii';
+        }
+        // If lines are too long, and we're not already using an encoding that will shorten them,
+        // change to quoted-printable transfer encoding for the alt body part only
+        if (static::ENCODING_BASE64 != $altBodyEncoding and static::hasLineLongerThanMax($this->AltBody)) {
+            $altBodyEncoding = static::ENCODING_QUOTED_PRINTABLE;
+        }
+        // Use this as a preamble in all multipart message types
+        $mimepre = 'This is a multi-part message in MIME format.' . static::$LE;
+        switch ($this->message_type) {
+            case 'inline':
+                $body .= $mimepre;
+                $body .= $this->getBoundary($this->boundary[1], $bodyCharSet, '', $bodyEncoding);
+                $body .= $this->encodeString($this->Body, $bodyEncoding);
+                $body .= static::$LE;
+                $body .= $this->attachAll('inline', $this->boundary[1]);
+                break;
+            case 'attach':
+                $body .= $mimepre;
+                $body .= $this->getBoundary($this->boundary[1], $bodyCharSet, '', $bodyEncoding);
+                $body .= $this->encodeString($this->Body, $bodyEncoding);
+                $body .= static::$LE;
+                $body .= $this->attachAll('attachment', $this->boundary[1]);
+                break;
+            case 'inline_attach':
+                $body .= $mimepre;
+                $body .= $this->textLine('--', $this->boundary[1]);
+                $body .= $this->headerLine('Content-Type', static::CONTENT_TYPE_MULTIPART_RELATED . ';');
+                $body .= $this->textLine("\tboundary=\"" . $this->boundary[2] . '"');
+                $body .= static::$LE;
+                $body .= $this->getBoundary($this->boundary[2], $bodyCharSet, '', $bodyEncoding);
+                $body .= $this->encodeString($this->Body, $bodyEncoding);
+                $body .= static::$LE;
+                $body .= $this->attachAll('inline', $this->boundary[2]);
+                $body .= static::$LE;
+                $body .= $this->attachAll('attachment', $this->boundary[1]);
+                break;
+            case 'alt':
+                $body .= $mimepre;
+                $body .= $this->getBoundary($this->boundary[1], $altBodyCharSet, static::CONTENT_TYPE_PLAINTEXT, $altBodyEncoding);
+                $body .= $this->encodeString($this->AltBody, $altBodyEncoding);
+                $body .= static::$LE;
+                $body .= $this->getBoundary($this->boundary[1], $bodyCharSet, static::CONTENT_TYPE_TEXT_HTML, $bodyEncoding);
+                $body .= $this->encodeString($this->Body, $bodyEncoding);
+                $body .= static::$LE;
+                if (!empty($this->Ical)) {
+                    $body .= $this->getBoundary($this->boundary[1], '', static::CONTENT_TYPE_TEXT_CALENDAR . '; method=REQUEST', '');
+                    $body .= $this->encodedString($this->Ical, $this->Encoding);
+                    $body .= static::$LE;
+                }
+                $body .= $this->endBoundary($this->boundary[1]);
+                break;
+            case 'alt_inline':
+                $body .= $mimepre;
+                $body .= $this->getBoundary($this->boundary[1], $altBodyCharSet, static::CONTENT_TYPE_PLAINTEXT, $altBodyEncoding);
+                $body .= $this->encodeString($this->AltBody, $altBodyEncoding);
+                $body .= static::$LE;
+                $body .= $this-textLine('--', $this->boundary[1]);
+                $body .= $this->headerLine('Content-Type', static::CONTENT_TYPE_MULTIPART_RELATED . ';');
+                $body .= $this->textLine("\tboundary=\"" . $this->boundary[2] . '"');
+                $body .= static::$LE;
+                $body .= $this->getBoundary($this->boundary[2], $bodyCharSet, static::CONTENT_TYPE_TEXT_HTML, $bodyEncoding);
+                $body .= $this->encodeString($this->Body, $bodyEncoding);
+                $body .= static::$LE;
+                $body .= $this->attachAll('inline', $this->boundary[2]);
+                $body .= static::$LE;
+                $body .= $this->endBoundary($this->boundary[1]);
+                break;
+            case 'alt_attach':
+                $body .= $mimepre;
+                $body .= $this->textLine('--', $this->boundary[1]);
+                $body .= $this->headerLine('Content-Type', static::CONTENT_TYPE_MULTIPART_ALTERNATIVE . ';');
+                $body .= $this->textLine("\tboundary=\"" . $this->boundary[2] . '"');
+                $body .= static::$LE;
+                $body .= $this->getBoundary($this->boundary[2], $altBodyCharSet, static::CONTENT_TYPE_PLAINTEXT, $altBodyEncoding);
+                $body .= $this->encodeString($this->AltBody, $altBodyEncoding);
+                $body .= static::$LE;
+                $body .= $this->getBoundary($this->boundary[2], $bodyCharSet, static::CONTENT_TYPE_TEXT_HTML, $bodyEncoding);
+                $body .= $this->encodeString($this->Body, $bodyEncoding);
+                $body .= static::$LE;
+                if (!empty($this->Ical)) {
+                    $body .= $this->getBoundary($this->boundary[2], '', static::CONTENT_TYPE_TEXT_CALENDAR . '; method=REQUEST', '');
+                    $body .= $this->encodedString($this->Ical, $this->Encoding);
+                }
+                $body .= $this->endBoundary($this->boundary[2]);
+                $body .= static::$LE;
+                $body .= $this->attachAll('attachment', $this->boundary[1]);
+                break;
+            case 'alt_inline_attach':
+                $body .= $mimepre;
+                $body .= $this->textLine('--', $this->boundary[1]);
+                $body .= $this->headerLine('Content-Type', static::CONTENT_TYPE_MULTIPART_ALTERNATIVE . ';');
+                $body .= $this->textLine("\tboundary=\"" . $this->boundary[2] . '"');
+                $body .= static::$LE;
+                $body .= $this->getBoundary($this->boundary[2], $altBodyCharSet, static::CONTENT_TYPE_PLAINTEXT, $altBodyEncoding);
+                $body .= $this->encodeString($this->AltBody, $altBodyEncoding);
+                $body .= static::$LE;
+                $body .= $this->textLine('--', $this->boundary[2]);
+                $body .= $this->headerLine('Content-Type', static::CONTENT_TYPE_MULTIPART_RELATED . ';');
+                $body .= $this->textLine("\tboundary=\"" . $this->boundary[3] . '"');
+                $body .= static::$LE;
+                $body .= $this->getBoundary($this->boundary[3], $bodyCharSet, static::CONTENT_TYPE_TEXT_HTML, $bodyEncoding);
+                $body .= $this->encodeString($this->Body, $bodyEncoding);
+                $body .= static::$LE;
+                $body .= $this->attachAll('inline', $this->boundary[3]);
+                $body .= static::$LE;
+                $body .= $this->endBoundary($this->boundary[2]);
+                $body .= static::$LE;
+                $body .= $this->attachAll('attachment', $this->boundary[1]);
+                break;
+            default:
+                // Catch case 'plain' and case '', applies to simple 'text/plain' and 'text/html' body content types
+                // Reset the 'Encoding' property in case we changed it for line length reasons
+                $this->Encoding = $bodyEncoding;
+                $body .= $this->encodeString($this->Body, $this->Encoding);
+                break;
+        }
+
+        if ($this->isError()) {
+            $body = '';
+            if ($this->exceptions) {
+                throw new Exception($this->lang('empty_message'), self::STOP_CRITICAL);
+            }
+        } else if ($this->sign_key_file) {
+            try {
+                if (!defined('PKCS7_TEXT')) {
+                    throw new Exception($this->lang('extension_missing') . 'openssl');
+                }
+                // @TODO would be nice to use php://temp streams here
+                $file = tempnam(sys_get_temp_dir(), 'mail');
+                if (false === file_put_contents($file, $body)) {
+                    throw new Exception($this->lang('signing') . ' Could not write temp file');
+                }
+                $signed = tempnam(sys_get_temp_dir(), 'signed');
+                // Workaround for PHP bug https://bugs.php.net/bug.php?id=69197
+                if (empty($this->sign_extracerts_file)) {
+                    $sign = @openssl_pkcs7_sign(
+                        $file,
+                        $signed,
+                        'file://' . realpath($this->sign_cert_file),
+                        ['file://' . realpath($this->sign_key_file), $this->sign_key_pass],
+                        []
+                    );
+                } else {
+                    $sign = @openssl_pkcs7_sign(
+                        $file,
+                        $signed,
+                        'file://' . realpath($this->sign_cert_file),
+                        ['file://' . realpath($this->sign_key_file), $this->sign_key_pass],
+                        [],
+                        PKCS7_DETACHED,
+                        $this->sign_extracerts_file
+                    );
+                }
+                @unlink($file);
+                if ($sign) {
+                    $body = file_get_contents($signed);
+                    @unlink($signed);
+                    // The message returned by openssl contains both headers and body, so need to split them up
+                    $parts = explode("\n\n", $body, 2);
+                    $this->MIMEHeader .= $parts[0] . static::$LE . static::$LE;
+                    $body = $parts[1];
+                } else {
+                    @unlink($signed);
+                    throw new Exception($thi->lang('signing') . openssl_error_string());
+                }
+            } catch (Exception $exc) {
+                $body = '';
+                if ($this->exceptions) {
+                    throw $exc;
+                }
+            }
+        }
+
+        return $body;
+    }
+
+    
 }
