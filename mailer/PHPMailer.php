@@ -2695,5 +2695,290 @@ class PHPMailer
         return $body;
     }
 
-    
+    /**
+     * Return the start of a message boundary.
+     * 
+     * @param string $boundary
+     * @param string $charSet 
+     * @param string $contentType
+     * @param string $encoding 
+     * 
+     * @return string
+     */
+    protected function getBoundary($boundary, $charSet, $contentType, $encoding)
+    {
+        $result = '';
+        if ('' == $charSet) {
+            $charSet = $this->CharSet;
+        }
+        if ('' == $contentType) {
+            $contentType = $this->ContentType;
+        }
+        if('' == $encoding) {
+            $encoding = $this->Encoding;
+        }
+        $result .= $this->textLine('--' . $boundary);
+        $result .= sprintf('Content-Type: %s; charset=%s', $contentType, $charSet);
+        $result .= static::$LE;
+        // RFC1341 part 5 says 7bit is assumed if not specified
+        if (static::ENCODING_7BIT != $encoding) {
+            $result .= $this->headerLine('Content-Transfer-Encoding', $encoding);
+        }
+        $result .= static::$LE;
+
+        return $result;
+    }
+
+    /**
+     * Return the end of a message boundary.
+     * 
+     * @param string $boundary
+     * 
+     * @return string
+     */
+    protected function endBoundary($boundary)
+    {
+        return static::$LE . '--' . $boundary . '--' . static::$LE;
+    }
+
+    /**
+     * Set the message type.
+     * PHPMailer only supports some preset message types, not arbitrary MIME structures.
+     */
+    protected function setMessageType()
+    {
+        $type = [];
+        if ($this->alternativeExists()) {
+            $type[] = 'alt';
+        }
+        if ($this->inlineImageExists()) {
+            $type[] = 'inline';
+        }
+        if ($this->attachmentExists()) {
+            $type[] = 'attach';
+        }
+        $this->message_type = implode('_', $type);
+        if ('' == $this->message_type) {
+            // The 'plain' messsage_type refers to the message having a single body element, not that it is plain-text
+            $this->message_type = 'plain';
+        }
+    }
+
+    /**
+     * Format a header line.
+     * 
+     * @param string     $name
+     * @param string|int $value
+     * 
+     * @return string
+     */
+    public function headerLine($name, $value)
+    {
+        return $name . ': ' . $value . static::$LE;
+    }
+
+    /**
+     * Return a formatted mail line.
+     * 
+     * @param string $value 
+     * 
+     * @return string
+     */
+    public function textLine($value)
+    {
+        return $value . static::$LE;
+    }
+
+    /**
+     * Add an atttachment from a path on the filesystem.
+     * Never use a user-supplied path to a file!
+     * Return false if the file could not be found or read.
+     * Explicitly *does not* support passing URLs; PHPMailer is not an HTTP client.
+     * If you need to do that, fetch the resources yourself and pass it in via a local file or string.
+     * 
+     * @param string $path        Path to the attachment
+     * @param string $name        Overrides the attachment name    
+     * @param string $encoding    File encoding (see $Encoding)
+     * @param string $type        File extension (MIME) type
+     * @param string $disposition Disposition to use 
+     * 
+     * @throws Exception
+     * 
+     * @return bool
+     */
+    public function addAttachment($path, $name = '', $encoding = self::ENCODING_BASE64, $type = '', $disposition = 'attachment')
+    {
+        try {
+            if (!static::isPermittedPath($path) || !@is_file($path)) {
+                throw new Exception($this->lang('file_access') . $path, self::STOP_CONTINUE);
+            }
+
+            // If a MIME type is not specified, try to work it out from the file name
+            if ('' == $type) {
+                $type = static::filenameToType($path);
+            }
+
+            $filename = basename($path);
+            if ('' == $name) {
+                $name = $filename;
+            }
+
+            $this->attachment[] = [
+                0 => $path,
+                1 => $filename,
+                2 => $name,
+                3 => $encoding,
+                4 => $type,
+                5 => false, // isStringAttachment
+                6 => $disposition,
+                7 => $name,
+            ];
+        } catch (Exception $exc) {
+            $this->setError($exc->getMessage());
+            $this->edebug($exc->getMessage());
+            if ($this->exceptions) {
+                throw $exc;
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Return the array of attachments.
+     * 
+     * @return array
+     */
+    public function getAttachments()
+    {
+        return $this->attachment;
+    }
+
+    /**
+     * Attach all file, string, and binary attachments to the message.
+     * Returns an empty string on failure.
+     * 
+     * @param string $disposition_type
+     * @param string $boundary 
+     * 
+     * @return string
+     */
+    protected function attachAll($disposition_type, $boundary)
+    {
+        // Return text of body
+        $mime = [];
+        $cidUniq = [];
+        $incl = [];
+
+        // Add all attachments
+        foreach ($this->attachment as $attachment) {
+            // Check if it is a valid disposition_filter
+            if ($attachment[6] == $disposition_type) {
+                // Check for string attachment
+                $string = '';
+                $path = '';
+                $bString = $attachment[5];
+                if ($bString) {
+                    $string = $attachment[0];
+                } else {
+                    $path = $attachment[0];
+                }
+
+                $inclhash = hash('sha256', serialize($attachment));
+                if (in_array($inclhash, $incl)) {
+                    continue;
+                }
+                $incl[] = $inclhash;
+                $name = $attachment[2];
+                $encoding = $attachment[3];
+                $type = $attachment[4];
+                $disposition = $attachment[6];
+                $cid = $attachment[7];
+                if ('inline' == $disposition and array_key_exists($cid, $cidUniq)) {
+                    continue;
+                }
+                $cidUniq[$cid] = true;
+
+                $mime[] = sprintf('--%s%s', $boundary, static::$LE);
+                // Only include a filename property if we have one
+                if (!empty($name)) {
+                    $mime[] = sprintf(
+                        'Content-Type: %s; name="%s"%s',
+                        $type,
+                        $this->encodedHeadeer($this->secureHeader($name)),
+                        static::$LE
+                    );
+                } else {
+                    $mime[] = sprintf(
+                        'Content-Type: %s%s',
+                        $type,
+                        static::$LE
+                    );
+                }
+                // RFC1341 part 5 says 7bit is assumed if not specified
+                if (static::ENCODING_7BIT != $encoding) {
+                    $mime[] = sprinf('Content-Transfer-Encoding: %s%s', $encoding, static::$LE);
+                }
+
+                if (!empty($cid)) {
+                    $mime[] = sprintf('Content-ID: <%s>%s', $cid, static::$LE);
+                }
+
+                // If a filename contains any of these chars, it should be quoted,
+                // but not otherwise: RFC2183 & RFC2045 5.1
+                // Fixes a warning in IETF' msglint MIME checker
+                // Allow for bypassing the Content-Disposition header totally
+                if (!(empty($disposition))) {
+                    $encoded_name = $this->encodeHeader($this->secureHeader($name));
+                    if (preg_match('/[ \(\)<>@,;:\\"\/\[\]\?=]/', $encoded_name)) {
+                        $mime[] = sprintf(
+                            'Content-Disposition: %s; filename="%s"%s',
+                            $disposition,
+                            $encoded_name,
+                            static::$LE . static::$LE
+                        );
+                    } else {
+                        if (!empty($encoded_name)) {
+                            $mime[] = sprintf(
+                                'Content-Disposition: %s; filename=%s%s',
+                                $disposition,
+                                $encoded_name,
+                                static::$LE . static::$LE
+                            );
+                        } else {
+                            $mime[] = sprintf(
+                                'Content-Disposition: %s%s',
+                                $disposition,
+                                static::$LE . static::$LE
+                            );
+                        }
+                    }
+                } else {
+                    $mime[] = static::$LE;
+                }
+
+                // Encode as string attachment
+                if ($bString) {
+                    $mime[] = $this->encodeString($string, $encoding);
+                } else {
+                    $mime[] = $this-encodeFile($path, $encoding);
+                }
+                if ($this->isError()) {
+                    return '';
+                }
+                $mime[] = static::$LE;
+            }
+        }
+
+        $mime[] = sprintf('--%s--%s', $boundary, static::$LE);
+
+        return implode('', $mime);
+    }
+
+    /**
+     * 
+     */
+
 }
