@@ -1960,6 +1960,7 @@ class PHPMailer
                             throw new Exception($this->lang('authenticate'));
                         }
                     }
+
                     return true;
                 } catch (Exception $exc) {
                     $lastexception = $exc;
@@ -1978,4 +1979,296 @@ class PHPMailer
 
         return false;
     }
+
+    /**
+     * Close the active SMTP session if one exists.
+     */
+    public function smtpClose()
+    {
+        if (null !== $this->smtp) {
+            if ($this->smtp->connected()) {
+                $this->smtp->quit();
+                $this->smtp->close();
+            }
+        }
+    }
+
+    /**
+     * Set the language for error messages.
+     * Returns false if it cannot load the language file.
+     * The default language is English.
+     * 
+     * @param string $langcode  ISO 639-1 2-character language code (e.g. French is "fr")
+     * @param string $lang_path Path to the language file directory, with trailing separator (slash)
+     * 
+     * @return bool
+     */
+    public function setLanguage($langcode = 'en', $lang_path = '')
+    {
+        // Backwards compatibility for renamed language codes
+        $renamed_langcodes = [
+            'br' => 'pt_br',
+            'cz' => 'cs',
+            'dk' => 'da',
+            'no' => 'nb',
+            'se' => 'sv',
+            'rs' => 'sr',
+            'tg' => 'tl',
+        ];
+
+        if (isset($renamed_langcodes[$langcode])) {
+            $langcode = $renamed_langcodes[$langcode];
+        }
+
+        // Define full set of translatable strings in English
+        $PHPMAILER_LANG = [
+            'authenticate' => 'SMTPError: Could not authenticate.',
+            'connect_host' => 'SMTPError: Could not connect to SMTP host.',
+            'data_not_accepted' => 'SMTPError: data not accepted.',
+            'empty_message' => 'Message body empty',
+            'encoding' => 'Unknown encoding: ',
+            'execute' => 'Could not execute: ',
+            'file_access' => 'Could not access file: ',
+            'file_open' => 'File Error: Could not open file: ',
+            'from_failed' => 'The following From address failed: ',
+            'instantiate' => 'Could not instantiate mail function.',
+            'invalid_address' => 'Invalid address: ',
+            'mailer_not_supported' => ' mailer is not supported.',
+            'provide_address' => 'You must provide at least one recipient email address.',
+            'recipients_failed' => 'SMTP Error: The following recipients failed: ',
+            'signing' => 'Signing Error: ',
+            'smtp_connect_failed' => 'SMTP connect() failed.',
+            'smtp_error' => 'SMTP server error: ',
+            'variable_set' => 'Cannot set or reset variable: ',
+            'extenstion_missing' => 'Extension missing: ',
+        ];
+        if (empty($lang_path)) {
+            // Calculate an absolute path so it can work if CWD is not here
+            $lang_path = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'language' . DIRECTORY_SEPARATOR;
+        }
+        // Validate $langcode
+        if (!preg_match('/^[a-z]{2}(?:_[a-zA-Z]{2})?$/', $langcode)) {
+            $langcode = 'en';
+        }
+        $foundlang = true;
+        $lang_file = $lang_path . 'phpmailer.lang-' . $langcode . '.php';
+        // There is no English translation file
+        if ('en' != $langcode) {
+            // Make sure language file path is readable
+            if (!static::isPermittedPath($lang_file) || !file_exists($lang_file)) {
+                $foundlang = false;
+            } else {
+                // Overwrite language-specific strings.
+                // This way we'll never have missing translation keys.
+                $foundlang = include $lang_file;
+            }
+        }
+        $this->language = $PHPMAILER_LANG;
+
+        return (bool) $foundlang; // Returns false if language not found
+    }
+
+    /**
+     * Get the array of strings for the current language.
+     * 
+     * @return array
+     */
+    public function getTranslations()
+    {
+        return $this->language;
+    }
+
+    /**
+     * Create recipient headers.
+     * 
+     * @param string $type 
+     * @param array  $addr An array of recipients,
+     *                     where each recipient is a 2-element indexed array with element 0 containing an address
+     *                     and element 1 containing a name, like: 
+     *                     [['joe@example.com', 'Joe User'], ['zoe@example.com', 'Zoe User']]             
+     * 
+     * @return string
+     */
+    public function addrAppend($type, $addr)
+    {
+        $addresses = [];
+        foreach ($addr as $address) {
+            $addresses[] = $this->addrFormat($address);
+        }
+
+        return $type . ': ' . implode(', ', $addresses) . static::$LE;
+    }
+
+    /**
+     * Format an address for use in a message header. 
+     * 
+     * @param array $addr A 2-element indexed array, element 0 containing an address, element 1 containing a name like
+     *                    ['joe@example.com', 'Joe User]
+     * 
+     * @return string
+     */
+    public function addrFormat($addr)
+    {
+        if (empty($addr[1])) { // No name provided
+            return $this->secureHeader($addr[0]);
+        }
+
+        return $this->encodeHeader($this->secureHeader($addr[1]), 'phrase') . ' <' . $this->secureHeader(
+            $addr[0]
+        ) . '>';
+    }
+
+    /**
+     * Word-wrap message.
+     * For use with mailers that do not automatically perform wrapping
+     * and for quoted-printable encoded messages.
+     * Original written by philippe.
+     * 
+     * @param string $message The message to wrap
+     * @param int    $length  The line length to wrap to
+     * @param bool   $qp_mode Whether to run in Quoted-Printable mode
+     * 
+     * @return string
+     */
+    public function wrapText($message, $length, $qp_mode = false)
+    {
+        if ($qp_mode) {
+            $soft_break = sprintf(' =%s', static::$LE);
+        } else {
+            $soft_break = static::$LE;
+        }
+        // If utf-8 encoding is used, we will need to make sure we don't
+        // split multibyte characters when we wrap
+        $is_utf8 = static::CHARSET_UTF8 === strtolower($this->CharSet);
+        $lelen = strlen(static::$LE);
+        $crlflen = strlen(static::$LE);
+
+        $message = static::normalizeBreaks($message);
+        // Remove a trailing line break
+        if (substr($message, -$lelen) == static::$LE) {
+            $message = substr($message, 0, -$lelen);
+        }
+
+        // Split message into lines
+        $lines = explode(static::$LE, $message);
+        // Message will be rebuilt in here
+        $message = '';
+        foreach ($lines as $line) {
+            $words = explode(' ', $line);
+            $buf = '';
+            $firstword = true;
+            foreach ($words as $word) {
+                if ($qp_mode and (strlen($word) > $length)) {
+                    $space_left = $length - strlen($buf) - $crlflen;
+                    if (!$firstword) {
+                        if ($space_left > 20) {
+                            $len = $space_left;
+                            if ($is_utf8) {
+                                $len = $this->utf8CharBoundary($word, $len);
+                            } else if ('=' == substr($word, $len - 1, 1)) {
+                                --$len;
+                            } else if ('=' == substr($word, $len - 2, 1)) {
+                                $len -= 2;
+                            }
+                            $part = substr($word, 0, $len);
+                            $word = substr($word, $len);
+                            $buf .= ' ' . $part;
+                            $message .= $buf . sprintf('=%s', static::$LE);
+                        } else {
+                            $message .= $buf . $soft_break;
+                        }
+                        $buf = '';
+                    }
+                    while (strlen($word) > 0) {
+                        if ($length <= 0) {
+                        break;
+                        }
+                        $len = $length;
+                        if ($is_utf8) {
+                            $len = $this->utf8CharBoundary($word, $len);
+                        } else if ('=' == substr($word, $len - 1, 1)) {
+                            --$len;
+                        } else if ('=' == substr($word, $len - 2, 1)) {
+                            $len -= 2;
+                        }
+                        $part = substr($word, 0, $len);
+                        $word = substr($word, $len);
+
+                        if (strlen($word) > 0) {
+                            $message .= $part . sprintf('=%s', static::$LE);
+                        } else {
+                            $buf = $part;
+                        }
+                    }
+                } else {
+                    $buf_o = $buf;
+                    if (!$firstword) {
+                        $buf .= ' ';
+                    }
+                    $buf .= $word;
+
+                    if (strlen($buf) > $length and '' != $buf_o) {
+                        $message .= $buf_o . $soft_break;
+                        $buf = $word;
+                    }
+                }
+                $firstword = false;
+            }
+            $message .= $buf . static::$LE;
+        }
+
+        return message;
+    }
+
+    /**
+     * Find the last character boundary prior to $maxLength in a utf-8 
+     * quoted-printable encoded string.
+     * Original written by Colin Brown.
+     * 
+     * @param string $encodedText utf-8 QP text
+     * @param int    $maxLength   Find the last character boundary prior to this length
+     * 
+     * @return int
+     */
+    public function utf8CharBoundary($encodedText, $maxLength)
+    {
+        $foundSplitPos = false;
+        $lookback = 3;
+        while (!$foundSplitPos) {
+            $lastChunk = substr($encodedText, $maxLength - $lookBack, $lookBack);
+            $encodedCharPos = strpos($lastChunk, '=');
+            if (false !== $encodedCharPos) {
+                // Found start of encoded character byte within $lookBack block.
+                // Check the encoded byte value (the 2 chars after the '=')
+                $hex = substr($encodedText, $maxLength - $lookBack + $encodedCharPos + 1, 2);
+                $dec = hexdec($hex);
+                if ($dec < 128) {
+                    // Single byte character.
+                    // If the encoded char was found at pos 0, it will fit 
+                    // otherwise reduce maxLength to start of the encoded char
+                    if ($encodedCharPos > 0) {
+                        $maxLength -= $lookBack - $encodedCharPos;
+                    }
+                    $foundSplitPos = true;
+                } else if ($dec >= 192) {
+                    // First byte of a multi byte character
+                    // Reduce maxLength to split at start of character
+                    $maxLength -= $lookBack - $encodedCharPos;
+                    $foundSplitPos = true;
+                } else if ($dec < 192) {
+                    // Middle byte of a multi byte character, look further back
+                    $lookBack += 3;
+                }
+            } else {
+                // No encoded character found
+                $foundSplitPos = true;
+            }
+        }
+
+        return $maxLength;
+    }
+
+    /**
+     * 
+     */
 }
