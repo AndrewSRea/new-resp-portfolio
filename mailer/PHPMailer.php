@@ -3991,7 +3991,296 @@ class PHPMailer
     }
 
     /**
+     * Map a file name to a MIME type.
+     * Defaults to 'application/octet-stream', i.e. arbitrary binary data. 
      * 
+     * @param string $filename A file name or full path, does not need to exist as a file
+     * 
+     * @return string
      */
+    public static function filenameToType($filename)
+    {
+        // In case the path is a URL, strip any query string before getting extension
+        $qpos = strpos($filename, '?');
+        if (false !== $qpos) {
+            $filename = substr($filename, 0, $qpos);
+        }
+        $ext = static::mb_pathinfo($filename, PATHINFO_EXTENSION);
+
+        return static::_mime_types($ext);
+    }
+
+    /**
+     * Multi-byte-safe pathinfo replacement.
+     * Drop-in replacement for pathinfo(), but multibyte- and cross-platform-safe. 
+     * 
+     * @see    http://www.php.net/manual/en/function.pathinfo.php#107461
+     *  
+     * @param string 
+     * @param int|string $options Either a PATHINFO_* constant,
+     *                            or a string name to return only the specified piece
+     * 
+     * @return string|array
+     */
+    public static function mb_pathinfo($path, $options = null)
+    {
+        $ret = ['dirname' => '', 'basename' => '', 'extension' => '', 'filename' => ''];
+        $pathinfo = [];
+        if (preg_match('#^(.*?)[\\\\/]*(([^/\\\\]*?)(\.([^\.\\\\/]+?)|))[\\\\/\.]*$#im', $path, $pathinfo)) {
+            if (array_key_exists(1, $pathinfo)) {
+                $ret['dirname'] = $pathinfo[1];
+            }
+            if (array_key_exists(2, $pathinfo)) {
+                $ret['basename'] = $pathinfo[2];
+            }
+            if (array_key_exists(5, $pathinfo)) {
+                $ret['extension'] = $pathinfo[5];
+            }
+            if (array_key_exists(3, $pathinfo)) {
+                $ret['filename'] = $pathinfo[3];
+            }
+        }
+        switch ($options) {
+            case PATHINFO_DIRNAME:
+            case 'dirname':
+                return $ret['dirname'];
+            case PATHINFO_BASENAME:
+            case 'basename':
+                return $ret['basename'];
+            case PATHINFO_EXTENSION:
+            case 'extension':
+                return $ret['extension'];
+            case PATHINFO_FILENAME:
+            case 'filename':
+                return $ret['filename'];
+            default:
+                return $ret;
+        }
+    }
+
+    /**
+     * Set or reset instance properties.
+     * You should avoid this function - it's more verbose, less efficient, more error-prone and
+     * harder to debug than setting properties directly.
+     * Usage Example:
+     * `$mail->set('SMTPSecure', 'tls');`
+     *   is the same as:
+     * `$mail->SMTPSecure = 'tls';`. 
+     * 
+     * @param string $name  The property name to set
+     * @param string $value The value to set the property to
+     * 
+     * @return bool
+     */
+    public function set($name, $value = '')
+    {
+        if (property_exists($this, $name)) {
+            $this->$name = $value;
+
+            return true;
+        }
+        $this->setError($this->lang('variable_set') . $name);
+
+        return false;
+    }
+
+    /**
+     * Strip newlines to prevent header injection. 
+     * 
+     * @param string $str 
+     * 
+     * @return string
+     */
+    public function secureHeader($str)
+    {
+        return trim(str_replace(["\r", "\n"], '', $str));
+    }
+
+    /**
+     * Normalize line breaks in a string. 
+     * Converts UNIX LF, Mac CR and Windows CRLF line breaks into a single line break format. 
+     * Defaults to CRLF (for message bodies) and preserves consecutive breaks. 
+     * 
+     * @param string $text      
+     * @param string $breaktype What kind of line break to use; defaults to static::$LE
+     * 
+     * @return string
+     */
+    public static function normalizeBreaks($text, $breaktype = null)
+    {
+        if (null === $breaktype) {
+            $breaktype = static::$LE;
+        }
+        // Normalize to \n
+        $text = str_replace(["\r\n", "\r"], "\n", $text);
+        // Now convert LE as needed
+        if ("\n" !== $breaktype) {
+            $text = str_replace("\n", $breaktype, $text);
+        }
+
+        return $text;
+    }
+
+    /**
+     * Return the current line break format string. 
+     * 
+     * @return string
+     */
+    public static function getLE()
+    {
+        return static::$LE;
+    }
+
+    /**
+     * Set the line break format string, e.g. "\r\n". 
+     * 
+     * @param string $le 
+     */
+    protected static function setLE($le)
+    {
+        static::$LE = $le;
+    }
+
+    /**
+     * Set the public and private key files and password for S/MIME signing.
+     * 
+     * @param string $cert_filename
+     * @param string $key_filename
+     * @param string $sign_key_pass       Password for private key
+     * @param string $extracerts_filename Optional path to chain certificate
+     */
+    public function sign($cert_filename, $key_filename, $key_pass, $extracerts_filename = '')
+    {
+        $this->sign_cert_file = $cert_filename;
+        $this->sign_key_file = $key_filename;
+        $this->sign_key_pass = $key_pass;
+        $this->sign_extracerts_file = $extracerts_filename;
+    }
+
+    /** 
+     * Quoted-Printable-encode a DKIM header. 
+     * 
+     * @param string $txt 
+     * 
+     * @return string
+    */
+    public function DKIM_QP($txt)
+    {
+        $line = '';
+        $len = strlen($txt);
+        for ($i = 0; $i < $len; ++$i) {
+            $ord = ord($txt[$i]);
+            if (((0x21 <= $ord) and ($ord <= 0x3A)) or $ord == ((0x3E <= $ord) and ($ord <= 0x7E))) {
+                $line .= $txt[$i];
+            } else {
+                $line .= '=' . sprintf('%02X', $ord);
+            }
+        }
+
+        return $line;
+    }
+
+    /**
+     * Generate a DKIM signature. 
+     * 
+     * @param string $signHeader 
+     * 
+     * @throws Exception
+     * 
+     * @return string The DKIM signature value
+     */
+    public function DKIM_Sign($signHeader)
+    {
+        if (!define('PKCS7_TEXT')) {
+            if ($this->exceptions) {
+                throw new Exception($this->lang('extension_missing') . 'openssl');
+            }
+
+            return '';
+        }
+        $privKeyStr = !empty($this->DKIM_private_string) ?
+            $this->DKIM_private_string :
+            file_get_contents($this->DKIM_private);
+        if ('' != $this->DKIM_passphrase) {
+            $privKey = openssl_pkey_get_private($privKeyStr, $this->DKIM_passphrase);
+        } else {
+            $privKey = openssl_pkey_get_private($privKeyStr);
+        }
+        if (openssl_sign($signHeader, $signature, $privKey, 'sha256WithRSAEncryption')) {
+            openssl_pkey_free($privKey);
+
+            return base64_encode($signature);
+        }
+        openssl_pkey_free($privKey);
+
+        return '';
+    }
+
+    /**
+     * Generate a DKIM canonicalization header. 
+     * Uses the 'relaxed' algorithm from RFC6376 section 3.4.2. 
+     * Canonicalized headers should *always* use CRLF, regardless of mailer setting.
+     * 
+     * @see    https://tools.ietf.org/html/rfc6376#section-3.4.2
+     * 
+     * @param string $signHeader Header
+     * 
+     * @return string
+     */
+    public function DKIM_HeaderC($signHeader)
+    {
+        // Unfold all header continuation lines
+        // Also collapses folded whitespace.
+        // Note PCRE \s is too broad a definition of whitespace; RFC5322 defines it as `[ \t]`
+        // @see https://tools.ietf.org/html/rfc5322#section-2.2
+        // That means this may break if you do something daft like put vertical tabs in your headers.
+        $signHeader = preg_replace('/\r\n[ \t]+/', ' ', $signHeader);
+        $lines = explode("\r\n", $signHeader);
+        foreach ($lines as $key => $line) {
+            // If the header is missing a :, skip it as it's invalid
+            // This is likely to happen becasue the explode() above will also split
+            // on the trailing LE, leaving an empty line
+            if (strpos($line, ':') === false) {
+                continue;
+            }
+            list($heading, $value) = explode(':', $line, 2);
+            // Lowercase header name
+            $heading = strtolower($heading);
+            // Collapse whitespace within the value
+            $value = preg_replace('/[ \t]{2,}/', ' ', $value);
+            // RFC6376 is slightly unclear here - it says to delte space at the *end* of each value
+            // But then says to delete space before and after the colon. 
+            // Net result is the same as trimming both ends of the value.
+            // By elimination, the same applies to the field name
+            $lines[$key] = trim($heading, " \t") . ':' . trim($value, " \t");
+        }
+
+        return implode("\r\n", $lines);
+    }
+
+    /**
+     * Generate a DKIM canonicalization body. 
+     * Uses the 'simple' algorithm from RFC6376 section 3.4.3.
+     * Canonicalized bodies should *always* use CRLF, regardless of mailer setting.
+     * 
+     * @see
+     * 
+     * @param string $body Message Body
+     * 
+     * @return string
+     */
+    public function DKIM_BodyC($body)
+    {
+        if (empty($body)) {
+            return "\r\n";
+        }
+        // Normalize line endings to CRLF
+        $body = static::normalizeBreaks($body, "\r\n");
+
+        // Reduce multiple trailing line breaks to a single one
+        return rtrim($body, "\r\n") . "\r\n";
+    }
+
+
 
 }
