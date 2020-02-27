@@ -2978,7 +2978,533 @@ class PHPMailer
     }
 
     /**
+     * Encode a file attachment in requested format.
+     * Returns an empty string on failure. 
      * 
+     * @param string $path 
+     * @param string $encoding The encoding to use; one of 'base64', '7bit', '8bit' 'binary', 'quoted-printable'
+     * 
+     * @throws Exception
+     * 
+     * @return string
      */
+    protected function encodeFile($path, $encoding = self::ENCODING_BASE64)
+    {
+        try {
+            if (!static::isPermittedPath($path) || !file_exists($path)) {
+                throw new Exception($this->lang('file_open') . $path, self::STOP_CONTINUE);
+            }
+            $file_buffer = file_get_contents($path);
+            if (false == $file_buffer) {
+                throw new Exception($this->lang('file_open') . $path, self::STOP_CONTINUE);
+            }
+            $file_buffer = $this->encodeString($file_buffer, $encoding);
+
+            return $file_buffer;
+        } catch (Exception $exc) {
+            $this->setError($exc->getMessage());
+
+            return '';
+        }
+    }
+
+    /**
+     * Encode a string in requested format.
+     * Returns an empty string on failure.
+     * 
+     * @param string $str      The text to encode
+     * @param string $encoding The encoding to use; one of 'base64', '7bit', '8bit', 'binary', 'quoted-printable'
+     * 
+     * @return string
+     */
+    public function encodeString($str, $encoding = self::ENCODING_BASE64)
+    {
+        $encoded = '';
+        switch (strtolower($encoding)) {
+            case static::ENCODING_BASE64:
+                $encoded = chunk_split(
+                    base64_encode($str),
+                    static::STD_LINE_LENGTH,
+                    static::$LE
+                );
+                break;
+            case static::ENCODING_7BIT:
+            case static::ENCODING_8BIT:
+                $encoded = static::normalizeBreaks($str);
+                // Make sure it ends with a line break
+                if (substr($encoded, -(strlen(static::$LE))) != static::$LE) {
+                    $encoded .= static::$LE;
+                }
+                break;
+            case static::ENCODING_BINARY:
+                $encoded = $str;
+                break;
+            case static::ENCODING_QUOTED_PRINTABLE:
+                $encoded = $this->encodeQP($str);
+                break;
+            default:
+                $this->setError($this->lang('encoding') . $encoding);
+                break;
+        }
+
+        return $encoded;
+    }
+
+    /**
+     * Encode a header value (not including its label) optimally.
+     * Picks shortest of Q, B, or none. Result includes folding if needed.
+     * See RFC822 definitions for phrase, comment and text positions.
+     * 
+     * @param string $str      The header value to encode
+     * @param string $position What context the string will be used in
+     * 
+     * @return string
+     */
+    public function encodeHeader($str, $position = 'text')
+    {
+        $matchcount = 0;
+        switch (strtolower($position)) {
+            case 'phrase':
+                if (!preg_match('/[\200-\377]/', $str)) {
+                    // Can't use addslashes as we don't know the value of magic_quotes_sybase
+                    $encoded = addcslashes($str, "\0..\37\177\\\"");
+                    if (($str == $encoded) and !preg_match('/[^A-Za-z0-9!#$%&\'*+\/=?^_`{|}~ -]/', $str)) {
+                        return $encoded;
+                    }
+
+                    return "\"$encoded\"";
+                }
+                $matchcount = preg_match_all('/[^\040\041\043-\133\135-\176]/', $str, $matches);
+                break;
+            /* @noinspection PhpMissingBreakStatementInspection */
+            case 'comment':
+                $matchcount = preg_match_all('/[()"]/', $str, $matches);
+            // fallthrough
+            case 'text':
+            default:
+                $matchcount += preg_match_all('/[\000-\010\013\014\016-\037\177-\377]/', $str, $matches);
+                break;
+        }
+
+        // RFCs specify a maximum line length of 78 chars, however mail() will sometimes
+        // corrupt message with headers longer than 65 chars. See #818
+        $lengthsub = 'mail' == $this->Mailer ? 13 : 0;
+        $maxlen = static::STD_LINE_LENGTH - $lengthssub;
+        // Try to select the encoding which should produce the shortest output
+        if ($matchcount > strlen($str) / 3) {
+            // More than a third of the content will need encoding, so B encoding will be most efficient
+            $encoding = 'B';
+            // This calculation is:
+            // max line length
+            // - shorten to avoid mail() corruption
+            // - Q/B encoding char overhead ("` =?<charset>?[QB]?<content>?=`")
+            // - charset name length
+            $maxlen = static::STD_LINE_LENGTH - $lengthsub - 8 - strlen($this->CharSet);
+            if ($this->hasMultiBytes($str)) {
+                // Use a custom function which correctly encodes and wraps long
+                // multibyte strings without breaking lines within a character
+                $encoded = $this->base64EncodeWrapMB($str, "\n");
+            } else {
+                $encoded = base64_encode($str);
+                $maxlen -= $maxlen % 4;
+                $encoded = trim(chunk_split($encoded, $maxlen, "\n"));
+            }
+            $encoded = preg_replace('/^(.*)$/m', ' =?' . $this->CharSet . "?$encoding?\\1?=", $encoded);
+        } else if ($matchcount > 0) {
+            // 1 or more chars need encoding, use Q-encode
+            $encoding = 'Q';
+            // Recalc max line length for Q encoding - see comments on B encode
+            $maxlen = static::STD_LINE_LENGTH - $lengthsub - 8 - strlen($this->CharSet);
+            $encoded = $this->encodeQ($str, $position);
+            $encoded = $this->wrapText($encoded, $maxlen, true);
+            $encoded = str_replace('=' . static::$LE, "\n", trim($encoded));
+            $encoded = preg_replace('/^(.*)$/m', ' =?' . $this->CharSet . "?$encoding?\\1?=", $encoded);
+        } else if (strlen($str) > $maxlen) {
+            // No chars need encoding, but line is too long, so fold it
+            $encoded = trim($this->wrapText($str, $maxlen, false));
+            if ($str == $encoded) {
+                // Wrapping nicely didn't work, wrap hard instead
+                $encoded = trim(chunk_split($str, static::STD_LINE_LENGTH, static::$LE));
+            }
+            $encoded = str_replace(static::$LE, "\n", trim($encoded));
+            $encoded = preg_replace('/^(.*)$/m', ' \\1', $encoded);
+        } else {
+            // No reformatting needed
+            return $str;
+        }
+
+        return trim(static::normalizeBreaks($encoded));
+    }
+
+    /**
+     * Check if a string contains multi-byte characters.
+     * 
+     * @param string $str multi-byte text to wrap encode
+     * 
+     * @return bool
+     */
+    public function  hasMultiBytes($str)
+    {
+        if (function_exists('mb_strlen')) {
+            return strlen($str) > mb_strlen($str, $this->CharSet);
+        }
+
+        // Assume no multibytes (we can't handle without mbstring functions anyway)
+        return false;
+    }
+
+    /**
+     * Does a string contain any 8-bit chars (in any charset)?
+     * 
+     * @param string $text 
+     * 
+     * @return bool
+     */
+    public function has8bitChars($text)
+    {
+        return (bool) preg_match('/[x80-\xFF]/', $text);
+    }
+
+    /**
+     * Encode and wrap long multibyte strings for mail headers
+     * without breaking lines within a character.
+     * Adapted from a function by paravoid. 
+     * 
+     * @see http://ww.php.net/manual/en/function.mb-encode-mimeheader.php#60283 
+     * 
+     * @param string $str       multi-byte text to wrap encode
+     * @param string $linebreak string to use as linefeed/end-of-line
+     * 
+     * @return string
+     */
+    public function base64EncodeWrapMB($str, $linebreak = null)
+    {
+        $start = '=?' . $this->CharSet . '?B?';
+        $end = '?=';
+        $encoded = '';
+        if (null === $linebreak) {
+            $linebreak = static::$LE;
+        }
+
+        $mb_length = mb_strlen($str, $this->CharSet);
+        // Each line must have length <= 75, including $start and $end
+        $length = 75 - strlen($start) - strlen($end);
+        // Average multi-byte ratio
+        $ratio = $mb_length / strlen($str);
+        // Base64 has a 4:3 ratio
+        $avgLength = floor($length * $ratio * .75);
+
+        for ($i = 0; $i < $mb_length; $i += $offset) {
+            $lookBack = 0;
+            do {
+                $offset = $avgLength - $lookBack;
+                $chunk = mb_substr($str, $i, $offset, $this->CharSet);
+                $chunk = base64_encode($chunk);
+                ++$lookBack;
+            } while (strlen($chunk) > $length);
+            $encoded .= $chunk . $linebreak;
+        }
+
+        // Chomp the last linefeed
+        return substr($encoded, 0, -strlen($linebreak));
+    }
+
+    /**
+     * Encode a string in quoted-printable format.
+     * According to RFC2045 section 6.7. 
+     * 
+     * @param string $string The text to encode
+     * 
+     * @return string
+     */
+    public function encodeQP($string)
+    {
+        return static::normalizeBreaks(quoted_printable_encode($string));
+    }
+
+    /**
+     * Encode a string using Q encoding. 
+     * 
+     * @see http://tools.ietf.org/html/rfc2047#section-4.2
+     * 
+     * @param string $str
+     * @param string $position Where the text is going to be used, see the RFC for what that means
+     * 
+     * @return string
+     */
+    public function encodeQ($str, $position = 'text')
+    {
+        // There should not be any EOL in the string
+        $pattern = '';
+        $encoded = str_replace(["\r", "\n"], '', $str);
+        switch (strtolower($position)) {
+            case 'phrase':
+                // RFC 2047 section 5.3
+                $pattern = '^A-Za-z0-9!*+\/ -';
+                break;
+            /*
+             * RFC 2047 section 5.2
+             * Build $pattern without including delimiters and []
+             */
+            /* @noinspection PhpMissingBreakStatementInspection */
+            case 'comment':
+                $pattern = '\(\)"';
+            /* Intentional fall through */
+            case 'text':
+            default:
+                // RFC 2047 section 5.1
+                // Replace every high ascii, control, =, ? and _ characters
+                /** @noinspection SuspiciousAssignmentsInspection */
+                $pattern = '\000-\011\013\014\016-\037\075\077\137\177-\377' . $pattern;
+                break;
+        }
+        $matches = [];
+        if (preg_match_all("/[{$pattern}]/", $encoded, $matches)) {
+            // If the string contains an '=', make sure it's the first thing we replace
+            // so as to avoid double-encoding
+            $eqkey = array_search('=', $matches[0]);
+            if (false !== $eqkey) {
+                unset($matches[0][$eqkey]);
+                array_unshift($matches[0], '=');
+            }
+            foreach (array_unique($matches[0]) as $char) {
+                $encoded = str_replace($char, '=' . sprintf('%02X', ord($char)), $encoded);
+            }
+        }
+        // Replace spaces with _ (more readable than =20)
+        // Rfc 2047 section 4.2(2)
+        return str_replace(' ', '_', $encoded);
+    }
+
+    /**
+     * Add a string or binary attachment (non-filesystem).
+     * This method can be used to attach ascii or binary data,
+     * such as a BLOB record from a database.
+     * 
+     * @param string $string      String attachment
+     * @param string $filename    Name of the attachment
+     * @param string $encoding    File encoding (see $Encoding)
+     * @param string $type        File extension (MIME) type
+     * @param string $disposition Disposition to use
+     */
+    public function addStringAttachment(
+        $string,
+        $filename,
+        $encoding = self::ENCODING_BASE64,
+        $type = '',
+        $disposition = 'attachment'
+    ) {
+        // If a MIME type is not specified, try to work it out from the file name
+        if ('' == $type) {
+            $type = static::filenameToType($filename);
+        }
+        // Append to $attachment array
+        $this->attachment[] = [
+            0 => $string,
+            1 => $filename,
+            2 => basename($filename),
+            3 => $encoding,
+            4 => $type,
+            5 => true, // isStringAttachmeent
+            6 => $disposition,
+            7 => 0,
+        ];
+    }
+
+    /**
+     * Add an embedded (inline) attachment from a file.
+     * This can include images, sounds, and just about any otheer document type.
+     * These differ from 'regular' attachments in that they are intended to be
+     * displayed inline with the message, not just attached for download.
+     * This is used in HTML messages that embed the images
+     * the HTML refers to using the $cid value.
+     * Never use a user-supplied path to a file!
+     * 
+     * @param string $path        Path to the attachment
+     * @param string $cid         Content ID of the attachment; Use this to reference
+     *                            the content when using an embedded image in HTML
+     * @param string $name        Overrides the attachment name
+     * @param string $encoding    File encoding (see $Encoding)
+     * @param string $type        File MIME type
+     * @param string $disposition Disposition to use
+     * 
+     * @return bool True on successfully adding an attachment
+     */
+    public function addEmbeddedImage($path, $cid, $name = '', $encoding = self::ENCODING_BASE64, $type = '', $disposition = 'inline')
+    {
+        if (!static::isPermittedPath($path) || !@is_file($path)) {
+            $this->setError($this->lang('file_access') . $path);
+
+            return false;
+        }
+
+        // If a MIME type is not specified, try to work it out from the file name
+        if ('' == $type) {
+            $type = static::filenameToType($path);
+        }
+
+        $filename = basename($path);
+        if ('' == $name) {
+            $name = $filename;
+        }
+
+        // Append to $attachment array
+        $this->attachment[] = [
+            0 => $path,
+            1 => $filename,
+            2 => $name,
+            3 => $encoding,
+            4 => $type,
+            5 => false, // isStringAttachment
+            6 => $disposition,
+            7 => $cid,
+        ];
+
+        return true;
+    }
+
+    /**
+     * Add an embedded stringfield attachment.
+     * This can include images, sounds, and just about any other document type.
+     * If your filename doesn't contain an extension, be sure to set the $type to an appropriate MIME type.
+     * 
+     * @param string $string      The attachment binary data
+     * @param string $cid         Content ID of the attachment; Use this to reference
+     *                            the content when using an embedded image in HTML
+     * @param string $name        A filename for the attachment. If this contains an extension,
+     *                            PHPMailer will attempt to set a MIME type for the attachment.
+     *                            For example 'file.jpg' would get an 'image/jpeg' MIME type.
+     * @param string $encoding    File encoding (see $Encoding), defaults to 'base64'
+     * @param string $type        MIME type - will be used in preference to any automatically derived type
+     * @param string $disposition Disposition to use
+     * 
+     * @return bool True on successfully adding an attachment
+     */
+    public function addStringEmbeddedImage(
+        $string,
+        $cid,
+        $name = '',
+        $encoding = self::ENCODING_BASE64,
+        $type = '',
+        $disposition = 'inline'
+    ) {
+        // If a MIME type is not specified, try to work it out from the name
+        if ('' == $type and !empty($name)) {
+            $type = static::filenameToType($name);
+        }
+
+        // Append to $attachment array
+        $this->attachment[] = [
+            0 => $string,
+            1 => $name,
+            2 => $name,
+            3 => $encoding,
+            4 => $type,
+            5 => true, // isStringAttachment
+            6 => $disposition,
+            7 => $cid,
+        ];
+
+        return true;
+    }
+
+    /**
+     * Check if an embedded attachment is present with this cid.
+     * 
+     * @param string $cid 
+     * 
+     * @return bool
+     */
+    protected function cidExists($cid)
+    {
+        foreach ($this->attachment as $attachment) {
+            if ('inline' == $attachment[6] and $cid == $attachment[7]) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check is an inline attachment is present.
+     * 
+     * @return bool
+     */
+    public function inlineImageExists()
+    {
+        foreach ($this->attachment as $attachment) {
+            if ('inline' == $attachment[6]) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check is na attachment (non-inline) is present.
+     * 
+     * @return bool
+     */
+    public function attachmentExists()
+    {
+        foreach ($this->attachment as $attachment) {
+            if ('attachment' == $attachment[6]) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if this message hass an alternative body set.
+     * 
+     * @return bool
+     */
+    public function alternativeExists()
+    {
+        return !empty($this->AltBody);
+    }
+
+    /**
+     * Clear queued addresses of given kind.
+     * 
+     * @param string $kind 'to', 'cc', or 'bcc'
+     */
+    public function clearQueuedAddresses($kind)
+    {
+        $this->RecipientQueue = array_filter(
+            $this->RecipientQueue,
+            function ($params) use ($kind) {
+                return $params[0] != $kind;
+            }
+        );
+    }
+
+    /**
+     * Clear all To recipients.
+     */
+    public function clearAddresses()
+    {
+        foreach ($this->to as $to) {
+            unset($this->all_recipients[strtolower($to[0])]);
+        }
+        $this->to = [];
+        $this->clearQueuedAddresses('to');
+    }
+
+    /**
+     * Clear all CC recipients.
+     */
+    public function clearCCs()
+    {
+        foreach ($this->cc as $cc) {
+            unset($this->all_recipients[strtolower($cc[0])]);
+        }
+        $this->cc = [];
+        $this->clearQueuedAddresses('cc');
+    }
 
 }
