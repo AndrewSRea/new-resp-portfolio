@@ -3507,4 +3507,491 @@ class PHPMailer
         $this->clearQueuedAddresses('cc');
     }
 
+    /**
+     * Clear all BCC recipients.
+     */
+    public function clearBCCs()
+    {
+        foreach ($this->bcc as $bcc) {
+            unset($this->all_recipients[strtolower($bcc[0])]);
+        }
+        $this->bcc = [];
+        $this->clearQueuedAddresses('bcc');
+    }
+
+    /**
+     * Clear all ReplyTo recipients.
+     */
+    public function clearReplyTos()
+    {
+        $this->ReplyTo = [];
+        $this->ReplyToQueue = [];
+    }
+
+    /**
+     * Clear all recipient types.
+     */
+    public function clearAllRecipients()
+    {
+        $this->to = [];
+        $this->cc = [];
+        $this->bcc = [];
+        $this->all_recipients = [];
+        $this->RecipientsQueue = [];
+    }
+
+    /**
+     * Clear all filesystem, string, and binary attachments.
+     */
+    public function clearAttachments()
+    {
+        $this->attachment = [];
+    }
+
+    /**
+     * Clear all custom headers.
+     */
+    public function clearCustomHeaders()
+    {
+        $this->CustomHeader = [];
+    }
+
+    /**
+     * Add an error message to the error container.
+     * 
+     * @param string $msg
+     */
+    protected function setError($msg)
+    {
+        ++$this->error_count;
+        if ('smtp' == $this->Mailer and null !== $this->smtp) {
+            $lasterror = $this->smtp->getError();
+            if (!empty($lasterror['error'])) {
+                $msg .= $this->lang('smtp_error') . $lasterror['error'];
+                if (!empty($lasterror['detail'])) {
+                    $msg .= ' Detail: ' . $lasterror['detail'];
+                }
+                if (!empty($lasterror['smtp_code'])) {
+                    $msg .= ' SMTP code: ' . $lasterror['smtp_code'];
+                }
+                if (!empty($lasterror['smtp_code_ex'])) {
+                    $msg .= ' Additional SMTP info: ' . $lasterror['smtp_code_ex'];
+                }
+            }
+        }
+        $this->ErrorInfo = $msg;
+    }
+
+    /**
+     * Return an RFC 822 formatted date.
+     * 
+     * @return string
+     */
+    public static function  rfcDate()
+    {
+        // Set the time zone to whatever the default is to avoid 500 errors
+        // Will default to UTC if it's not set properly in php.ini
+        date_default_timezone_set(@date_default_timezone_get());
+
+        return date('D, j M Y H:i:s O');
+    }
+
+    /**
+     * Get the server hostname.
+     * Returns 'localhost.localdomain' if unknown.
+     * 
+     * @return string
+     */
+    protected function serverHostname()
+    {
+        $result = '';
+        if (!empty($this->Hostname)) {
+            $result = $this->Hostname;
+        } else if (isset($_SERVER) and array_key_exists('SERVER_NAME', $_SERVER)) {
+            $result = $_SERVER['SERVER_NAME'];
+        } else if (function_exists('gethostname') and gethostname() !== false) {
+            $result = gethostname();
+        } else if (php_uname('n') !== false) {
+            $result = php_uname('n');
+        }
+        if (!static::isValidHost($result)) {
+            return 'localhost.localdomain';
+        }
+
+        return $result;
+    }
+
+    /**
+     * Validate whether a string contains a valid value to use as a hostname or IP address. 
+     * IPv6 address must include [], e.g. '[::1]', not just '::1'. 
+     * 
+     * @param string $host The host name or IP address to check
+     * 
+     * @return bool
+     */
+    public static function isValidHost($host)
+    {
+        // Simple syntax limits
+        if (empty($host)
+            or !is_string($host)
+            or strlen($host > 256)
+        ) {
+            return false;
+        }
+        // Looks like a bracketed IPv6 address
+        if (trim($host, '[]') != $host) {
+            return (bool) filter_var(trim($host, '[]'), FILTER_VALIDATE_IP, FILTER_FLAG_IPV6);
+        }
+        // If removing all the dots results in a numeric string, it must be an IPv4 address. 
+        // Need to check this first because otherwise things like '999.0.0.0' are considered valid host names
+        if (is_numeric(str_replace('.', '', $host))) {
+            // Is it a valid IPv4 address?
+            return (bool) filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4);
+        }
+        if (filter_var('http://' . $host, FILTER_VALIDATE_URL)) {
+            // Is it a syntactically valid hostname?
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Get an error message in the current language. 
+     * 
+     * @param string $key 
+     * 
+     * @return string
+     */
+    protected function lang($key)
+    {
+        if (count($this->language) < 1) {
+            $this->setLanguage('en'); // set the default language
+        }
+
+        if (array_key_exists($key, $this->language)) {
+            if ('smtp_connect_failed' == $key) {
+                // Include a link to troubleshooting docs on SMTP connection failure
+                // this is by far the biggest cause of support questions
+                // but it's usually not PHPMailer's fault.
+                return $this->language[$key] . ' https://github.com/PHPMailer/PHPMailer/wiki/Troubleshooting';
+            }
+
+            return $this->language[$key];
+        }
+
+        // Return the key as a fallback
+        return $key;
+    }
+
+    /**
+     * Check is an error occurred.
+     * 
+     * @return bool True if an error did occur
+     */
+    public function isError()
+    {
+        return $this->error_count > 0;
+    }
+
+    /**
+     * Add a custom header. 
+     * $name value can be overloaded to contain
+     * both header name and value (name:value).
+     * 
+     * @param string      $name  Custom header name
+     * @param string|null $value Header value
+     */
+    public function addCustomHeader($name, $value = null)
+    {
+        if (null === $value) {
+            // Value passsed in as name:value
+            $this->CustomHeader[] = explode(':', $name, 2);
+        } else {
+            $this->CustomHeader[] = [$name, $value];
+        }
+    }
+
+    /**
+     * Returns all custom headers. 
+     * 
+     * @return array
+     */
+    public function getCustomHeaders()
+    {
+        return $this->CustomHeader;
+    }
+
+    /**
+     * Create a message body from an HTML string.
+     * Automatically inlines images and creates a plain-text version by converting the HTML,
+     * overwriting any existing values in Body and AltBody.
+     * Do not source $message content from user input!
+     * $baseddir is prepended when handling relative URLs, e.g. <img src="/images/a.png"> and must not be empty
+     * will look for an image file in $baseddir/images/a.png and convert it to inline.
+     * If you don't provide a $basedir, relative paths will be left untouched (and thus probably break in email)
+     * Converts data-uri images into embedded attachments.
+     * If you don't want to apply these transformations to your HTML, just set Body and AltBody directly.
+     * 
+     * @param string        $message  HTML message string
+     * @param string        $basedir  Absolute path to abase directory to prepend to relative paths to images
+     * @param bool|callable $advanced Whether to use the internal HTML to text converter
+     *                                or your own custom converter @see PHPMailer::html2text()
+     * 
+     * @return string $message The transformed message Body
+     */
+    public function msgHTML($message, $basedir = '', $advanced = false)
+    {
+        preg_match_all('/(src|background)=["\'](.*)["\']/Ui', $message, $images);
+        if (array_key_exists(2, $images)) {
+            if (strlen($basedir) > 1 && '/' != substr($basedir, -1)) {
+                // Ensure $basedir has a trailing /
+                $basedir .= '/';
+            }
+            foreach ($images[2] as $imgindex => $url) {
+                // Convert data URIs into embedded images
+                // e.g. "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAABAAEAAAICTAEAOw=="
+                if (preg_match('#^data:(image/(?:jpe?g|gif|png));?(base64)?,(.+)#', $url, $match)) {
+                    if (count($match) == 4 and static::ENCODING_BASE64 == $match[2]) {
+                        $data = base64_decode($match[3]);
+                    } else if ('' == $match[2]) {
+                        $data = rawurldecode($match[3]);
+                    } else {
+                        // Not recognised so leave it alone
+                        continue;
+                    }
+                    // Hash the decoded data, not the URL so that the same data-URI image used in multiple places
+                    // will only be embedded once, even if it used a different encoding
+                    $cid = hash('sha256', $data) . '@phpmailer.0'; // RFC2392 S 2
+
+                    if (!$this->cidExists($cid)) {
+                        $this->addStringEmbeddedImage($data, $cid, 'embed' . $imgindex, static::ENCODING_BASE64, $match[1]);
+                    }
+                    $message = str_replace(
+                        $images[0][$imgindex],
+                        $images[1][$imgindex] . '="cid:' . $cid . '"',
+                        $message
+                    );
+                    continue;
+                }
+                if (// Only process relative URLs if a basedir is provided (i.e. no absolute local paths)
+                    !empty($basedir)
+                    // Ignore URLs containing parent dir traversal (..)
+                    and (strpos($url, '..') === false)
+                    // Do not change urls that are already inline images
+                    and 0 !== strpos($url, 'cid:')
+                    // Do not change absolute URLs, including anonymous protocol
+                    and !preg_match('#^[a-z][a-z0-9+.-]*:?//#i', $url)
+                ) {
+                    $filename = basename($url);
+                    $directory = dirname($url);
+                    if ('.' == $directory) {
+                        $directory = '';
+                    }
+                    $cid = hash('sha256', $url) . '@phpmailer.0'; // RFC2392 S 2
+                    if (strlen($basedir) > 1 and '/' != substr($basedir, -1)) {
+                        $basedir .= '/';
+                    }
+                    if (strlen($directory) > 1 and '/' != substr($directory, -1)) {
+                        $directory .= '/';
+                    }
+                    if ($this->addEmbeddedImage(
+                        $basedir . $directory . $filename,
+                        $cid,
+                        $filename,
+                        static::ENCODING_BASE64,
+                        static::_mime_types((string) static::mb_pathinfo($filename, PATHINFO_EXTENSION))
+                    )
+                    ) {
+                        $message = preg_replace(
+                            '/' . $images[1][$imgindex] . '=["\']' . preg_quote($url, '/') . '["\']/Ui',
+                            $images[1][$imgindex] . '="cid:' . $cid . '"',
+                            $message
+                        );
+                    }
+                }
+            }
+        }
+        $this->isHTML(true);
+        // Convert all message body line breaks to LE, makes quoted-printable encoding work much better
+        $this->Body = static::normalizeBreaks($message);
+        $this->AltBody = static::normalizeBreaks($this->html2text($message, $advanced));
+        if (!$this->alternativeExists()) {
+            $this->AltBody = 'This is an HTML-only messsage. To view it, activate HTML in your email application.'
+                . static::$LE;
+        }
+
+        return $this->Body;
+    }
+
+    /**
+     * Convert an HTML string into plain text.
+     * This is used by msgHTML().
+     * Note - older versions of this function used a bundled advanced converter
+     * which was removed for license reasons in #232. 
+     * Example usage:
+     * 
+     * ```php
+     * // Use default conversion
+     * $plain = $mail->html2text($html);
+     * // Use your own custom converter
+     * $plain = $mail->html2text($html, function($html) {
+     *      $converter = new MyHtml2text($html);
+     *      return $converter->get_text();
+     * });
+     * ```
+     * 
+     * @param string        $html     The HTML text to convert
+     * @param bool|callable $advanced Any boolean value to use the internal converter, 
+     *                                or provide your own callable for custom conversion
+     * 
+     * @return string
+     */
+    public function html2text($html, $advanced = false)
+    {
+        if (is_callable($advanced)) {
+            return call_user_func($advanced, $html);
+        }
+
+        return html_entity_decode(
+            trim(strip_tags(preg_replace('/<(head|title|style|script)[^>]*>.*?<\/\\1>/si', '', $html))),
+            ENT_QUOTES,
+            $this->CharSet
+        );
+    }
+
+    /**
+     * Get the MIME type for a file extension.
+     * 
+     * @param string $ext File extension
+     * 
+     * @return string MIME type of file
+     */
+    public static function _mime_type($ext = '')
+    {
+        $mimes = [
+            'xl' => 'application/excel',
+            'js' => 'application/javascript',
+            'hqx' => 'application/mac-binhex40',
+            'cpt' => 'application/mac-compactpro',
+            'bin' => 'application/macbinary',
+            'doc' => 'application/msword',
+            'word' => 'application/msword',
+            'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'xltx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.template',
+            'potx' => 'application/vnd.openxmlformats-officedocument.presentationml.template',
+            'ppsx' => 'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+            'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'sldx' => 'application/vnd.openxmlformats-officedocument.presentationml.slide',
+            'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'dotx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+            'xlam' => 'application/vnd.ms-excel.addin.macroEnabled12',
+            'xlsb' => 'application/vnd.ms-excel.sheet.binary.macroEnabled.12',
+            'class' => 'application/octet-stream',
+            'dll' => 'application/octet-stream',
+            'dms' => 'application/octet-stream',
+            'exe' => 'application/octet-stream',
+            'lha' => 'application/octet-stream',
+            'lzh' => 'application/octet-stream',
+            'psd' => 'application/octet-stream',
+            'sea' => 'application/octet-stream',
+            'so' => 'application/octet-stream',
+            'oda' => 'application/oda',
+            'pdf' => 'application/pdf',
+            'ai' => 'application/postscript',
+            'eps' => 'application/postscript',
+            'ps' => 'application/postscript',
+            'smi' => 'application/smil',
+            'smil' => 'application/smil',
+            'mif' => 'application/vnd.mif',
+            'xls' => 'application/vnd.ms-excel',
+            'ppt' => 'application/vnd.ms-powerpoint',
+            'wbxml' => 'application/vnd.wap.wbxml',
+            'wmlc' => 'application/vnd.wap.wmlc',
+            'dcr' => 'application/x-director',
+            'dir' => 'application/x-director',
+            'dxr' => 'application/x-director',
+            'dvi' => 'application/x-dvi',
+            'gtar' => 'application/x-gtar',
+            'php3' => 'application/x-httpd-php',
+            'php4' => 'application/x-httpd-php',
+            'php' => 'application/x-httpd-php',
+            'phtml' => 'application/x-httpd-php',
+            'phps' => 'application/x-httpd-php-source',
+            'swf' => 'application/x-shockwave-flash',
+            'sit' => 'application/x-stuffit',
+            'tar' => 'application/x-tar',
+            'tgz' => 'application/x-tar',
+            'xht' => 'application/xhtml+xml',
+            'xhtml' => 'application/xhtml+xml',
+            'zip' => 'application/zip',
+            'mid' => 'audio/midi',
+            'midi' => 'audio/midi',
+            'mp2' => 'audio/mpeg',
+            'mp3' => 'audio/mpeg',
+            'm4a' => 'audio/mp4',
+            'mpga' => 'audio/mpeg',
+            'aif' => 'audio/x-aiff',
+            'aifc' => 'audio/x-aiff',
+            'aiff' => 'audio/x-aiff',
+            'ram' => 'audio/x-pn-realaudio',
+            'rm' => 'audio/x-pn-realaudio',
+            'rpm' => 'audio/x-pn-realaudio-plugin',
+            'ra' => 'audio/x-realaudio',
+            'wav' => 'audio/x-wav',
+            'mka' => 'audio/x-matroska',
+            'bmp' => 'image/bmp',
+            'gif' => 'image/gif',
+            'jpeg' => 'image/jpeg',
+            'jpe' => 'image/jpeg',
+            'jpg' => 'image/jpeg',
+            'png' => 'image/png',
+            'tiff' => 'image/tiff',
+            'tif' => 'image/tiff',
+            'webp' => 'image/webp',
+            'heif' => 'image/heif',
+            'heifs' => 'image/heif-sequence',
+            'heic' => 'image/heic',
+            'heics' => 'image/heic-sequence',
+            'eml' => 'message/rfc822',
+            'css' => 'text/css',
+            'html' => 'text/html',
+            'htm' => 'text/html',
+            'shtml' => 'text/html',
+            'log' => 'text/plain',
+            'text' => 'text/plain',
+            'txt' => 'text/plain',
+            'rtx' => 'text/richtext',
+            'rtf' => 'text/rtf',
+            'vcf' => 'text/vcard',
+            'vcard' => 'text/vcard',
+            'ics' => 'text/calendar',
+            'xml' => 'text/xml',
+            'xsl' => 'text/xml',
+            'wmv' => 'video/x-ms-wmv',
+            'mpeg' => 'video/mpeg',
+            'mpe' => 'video/mpeg',
+            'mpg' => 'video/mpeg',
+            'mp4' => 'video/mp4',
+            'm4v' => 'video/mp4',
+            'mov' => 'video/quicktime',
+            'qt' => 'video/quicktime',
+            'rv' => 'video/vnd.rn-realvideo',
+            'avi' => 'video/x-msvideo',
+            'movie' => 'video/x-sgi-movie',
+            'webm' => 'video/webm',
+            'mkv' => 'video/x-matroska',
+        ];
+        $ext = strtolower($ext);
+        if (array_key_exists($ext, $mimes)) {
+            return $mimes[$ext];
+        }
+
+        return 'application/octet-stream';
+    }
+
+    /**
+     * 
+     */
+
 }
