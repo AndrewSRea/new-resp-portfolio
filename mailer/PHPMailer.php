@@ -4281,6 +4281,222 @@ class PHPMailer
         return rtrim($body, "\r\n") . "\r\n";
     }
 
+    /**
+     * Create the DKIM header and body in a new message header.
+     * 
+     * @param string $headers_line Header lines
+     * @param string $subject      Subject
+     * @param string $body         Body
+     * 
+     * @return string
+     */
+    public function FKIM_Add($headers_line, $subject, $body)
+    {
+        $DKIMsignatureType = 'rsa-sha256'; // Signature & hash algorithms
+        $DKIMcanonicalization = 'relaxed/simple'; // Canonicalization of header/body
+        $DKIMquery = 'dns/txt'; // Query method
+        $DKIMtime = time(); // Signature Timestamp = seconds since 00:00:00 - Jan 1, 1970 (UTC time zone)
+        $subject_header = "Subject: $subject";
+        $headers = explode(static::$LE, $headers_line);
+        $from_header = '';
+        $to_header = '';
+        $date_header = '';
+        $current = '';
+        $copiedHeaderFields = '';
+        $foundExtraHeaders = [];
+        $extraHeaderKeys = '';
+        $extraHeaderValues = '';
+        $extraCopyHeaderFields = '';
+        foreach ($headers as $header) {
+            if (strpos($header, 'From:') === 0) {
+                $from_header = $header;
+                $current = 'from_header';
+            } else if (strpos($header, 'To:') === 0) {
+                $to_header = $header;
+                $current = 'from_header';
+            } else if (strpos($header, 'Date:') === 0) {
+                $date_header = $header;
+                $current = 'date_header';
+            } else if (!empty($this->DKIM_extraHeaders)) {
+                foreach ($this->DKIM_extraHeaders as $extraHeader) {
+                    if (strpos($header, $extraHeader . ':') === 0) {
+                        $headerValue = $header;
+                        foreach ($this->CustomHeader as $customHeader) {
+                            if ($customHeader[0] === $extraHeader) {
+                                $headerValue = trim($customHeader[0]) . 
+                                               ': ' . 
+                                               $this->encodeHeader(trim($customHeader[1]));
+                                break;
+                            }
+                        }
+                        $foundExtraHeaders[$extraHeader] = $headerValue;
+                        $current = '';
+                        break;
+                    }
+                }
+            } else {
+                if (!empty($current) and strpos($header, ' =?') === 0) {
+                    $$current .= $header;
+                } else {
+                    $current = '';
+                }
+            }
+        }
+        foreach ($foundExtraHeaders as $key => $value) {
+            $extraHeaderKeys .= ':' . $key;
+            $extraHeaderValues .= $value . "\r\n";
+            if ($this->DKIM_copyHeaderFields) {
+                $extraCopyHeaderFields .= "\t|" . str_replace('|', '=7C', $this->DKIM_QP($value)) . ";\r\n";
+            }
+        }
+        if ($this->DKIM_copyHeaderFields) {
+            $from = str_replace('|', '=7C', $this->DKIM_QP($from_header));
+            $to = str_replace('|', '=7C', $this->DKIM_QP($to_header));
+            $date = str_replace('|', '=7C', $this->DKIM_QP($date_header));
+            $subject = str_replace('|', '=7C', $this->DKIM_QP($subject_header));
+            $copiedHeaderFields = "\tz=$from\r\n" . 
+                                  "\t|$to\r\n" . 
+                                  "\t|$date\r\n" . 
+                                  "\t|$subject;\r\n" . 
+                                  $extraCopyHeaderFields;
+        }
+        $body = $this->DKIM_BodyC($body);
+        $DKIMlen = strlen($body); // Length of body
+        $DKIMb64 = base64_encode(pack('H*', hash('sha256', $body))); // Base64 of packed binary SHA-256 hash of body 
+        if ('' == $this->DKIM_identity) {
+            $ident = '';
+        } else {
+            $ident = ' i=' . $this->DKIM_identity . ';';
+        }
+        $dkimhdrs = 'DKIM-Signature: v=1; a=' . 
+            $DKIMsignatureType . '; q=' . 
+            $DKIMquery . '; l=' . 
+            $DKIMlen . '; s=' . 
+            $this->DKIM_selector . 
+            ";\r\n" . 
+            "\tt=" . $DKIMtime . '; c=' . $DKIMcanonicalization . ";\r\n" . 
+            "\th=From:To:Date:Subject" . $extraHeaderKeys . ";\r\n" . 
+            "\td=" . $this->DKIM_domain . ';' . $ident . "\r\n" . 
+            $copiedHeaderFields . 
+            "\tbh=" . $DKIMb64 . ";\r\n" . 
+            "\tb=";
+        $toSign = $this->DKIM_HeaderC(
+            $from_header . "\r\n" . 
+            $to_header . "\r\n" . 
+            $date_header . "\r\n" . 
+            $subject_header . "\r\n" . 
+            $extraHeaderValues . 
+            $dkimhdrs 
+        );
+        $signed = $this->DKIM_Sign($toSign);
 
+        return static::normalizeBreaks($dkimhdrs . $signed) . static::$LE;
+    }
 
+    /**
+     * Detect if a string contains a line longer than the maximum line length
+     * allowed by RFC 2822 section 2.1.1. 
+     * 
+     * @param string $str 
+     * 
+     * @return bool
+     */
+    public static function hasLineLongerThanMax($str)
+    {
+        return (bool) preg_match('/^(.{' . (self::MAX_LINE_LENGTH + strlen(static::$LE)) . ',})/m', $str);
+    }
+
+    /**
+     * Allows for public read access to 'to' property. 
+     * Before the send() call, queued addresses (i.e. with IDN) are not yet included.
+     * 
+     * @return array
+     */
+    public function getToAddresses()
+    {
+        return $this->to;
+    }
+
+    /**
+     * Allows for public read access to 'cc' property.
+     * Before the send() call, queued addresses (i.e. with IDN) are not yet included.
+     * 
+     * @return array
+     */
+    public function getCcAddresses()
+    {
+        return $this->cc;
+    }
+
+    /**
+     * Allows for public read access to 'bcc' property.
+     * Before the send() call, queued addresses (i.e. with IDN) are not yet included.
+     * 
+     * @return array
+     */
+    public function getBccAddresses()
+    {
+        return $this->bcc;
+    }
+
+    /**
+     * Allows for public read access to 'ReplyTo' property. 
+     * Before the send() call, queued addresses (i.e. with IDN) are not yet included.
+     * 
+     * @return array
+     */
+    public function getReplyToAddresses()
+    {
+        return $this->ReplyTo;
+    }
+
+    /**
+     * Allows for public read access to 'all_recipients' property.
+     * Before the send() call, queued addresses (i.e. with IDN) are not yet included.
+     * 
+     * @return array
+     */
+    public function getAllRecipientAddresses()
+    {
+        return $this->all_recipients;
+    }
+
+    /**
+     * Perform a callback.
+     * 
+     * @param bool   $isSent
+     * @param array  $to
+     * @param array  $cc
+     * @param array  $bcc
+     * @param string $subject
+     * @param string $body
+     * @param string $from
+     * @param array  $extra 
+     */
+    protected function doCallback($isSent, $to, $cc, $bcc, $subject, $body, $from, $extra)
+    {
+        if (!empty($this->action_function) and is_callable($this->action_function)) {
+            call_user_func($this->action_function, $isSent, $to, $cc, $bcc, $subject, $body, $from, $extra);
+        }
+    }
+
+    /**
+     * Get the OAUth instance.
+     * 
+     * @return OAuth
+     */
+    public function getOAuth()
+    {
+        return $this->oauth;
+    }
+
+    /**
+     * Set an OAuth instance.
+     * 
+     * @param OAuth $oauth 
+     */
+    public function setOAuth(OAuth $oauth)
+    {
+        $this->oauth = $oauth;
+    }
 }
