@@ -375,4 +375,171 @@ class SMTP
 
         return true;
     }
+
+    /**
+     * Initiate a TLS (encrypted) session.
+     * 
+     * @return bool
+     */
+    public function startTLS()
+    {
+        if (!$this->sendCommand('STARTTLS', 'STARTTLS', 220)) {
+            return false;
+        }
+
+        // Allow the best TLS version(s) we can
+        $crypto_method = STREAM_CRYPTO_METHOD_TLS_CLIENT;
+
+        // PHP 5.6.7 dropped inclusion of TLS 1.1 and 1.2 in STREAM_CRYPTO_METHOD_TLS_CLIENT
+        // so add them back in manually if we can
+        if (defined('STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT')) {
+            $crypto_method |= STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT;
+            $crypto_method |= STREAM_CRYPTO_METHOD_TLSv1_1_CLIENT;
+        }
+
+        // Begin excrypted connection
+        set_error_handler([$this, 'errorHandler']);
+        $crypto_ok = stream_socket_enable_crypto(
+            $this->smtp_conn,
+            true,
+            $crypto_method
+        );
+        restore_error_handler();
+
+        return (bool) $crypto_ok;
+    }
+
+    /**
+     * Perform SMTP authentication.
+     * Must be run after hello().
+     * 
+     * @see    hello()
+     * 
+     * @param string $username The user name
+     * @param string $password The password
+     * @param string $authtype The auth type (CRAM-MD5, PLAIN, LOGIN, XOAUTH2)
+     * @param OAuth  $OAuth    An optional OAUth instance for XOAUTH2 authentication
+     * 
+     * @return bool True if successfully authenticated
+     */
+    public function authenticate(
+        $username,
+        $password,
+        $authtype = null,
+        $OAuth = null
+    ) {
+        if (!$this->server_caps) {
+            $this->setError('Authentication is not allowed before HELO/EHLO');
+
+            return false;
+        }
+
+        if (array_key_exists('EHLO', $this->server_caps)) {
+            // SMTP extensions are available; try to find a proper authentication method
+            if (!array_key_exists('AUTH', $this->server_caps)) {
+                $this->setError('Authentication is not allowed at this stage');
+                // 'at this stage' means that auth may be allowed after the stage changes
+                // e.g. after STARTTLS
+
+                return false;
+            }
+
+            $this->edebug('Auth method requested: ' . ($authtype ? $authtype : 'UNSPECIFIED'), self::DEBUG_LOWLEVEL);
+            $this->edebug(
+                'Auth methods available on the server: ' . implode(',', $this->server_caps['AUTH']),
+                self::DEBUG_LOWLEVEL
+            );
+
+            // If we have requested a specific auth type, check the server supports it before trying others
+            if (null !== $authtype and !in_array($authtype, $this->server_caps['AUTH'])) {
+                $this->edebug('Requested auth method not available: ' . $authtype, self::DEBUG_LOWLEVEL);
+                $authtype = null;
+            }
+
+            if (empty($authtype)) {
+                // If no auth mechanism is specified, attempt to use these, in this order
+                // Try CRAM-MD5 first as it's more secure than the others
+                foreach (['CRAM-MD5', 'LOGIN', 'PLAIN', 'XOAUTH2'] as $method) {
+                    if (in_array($method, $this->server_caps['AUTH'])) {
+                        $authtype = $method;
+                        break;
+                    }
+                }
+                if (empty($authtype)) {
+                    $this->setError('No supported authentication methods found');
+
+                    return false;
+                }
+                self::edebug('Auth method selected: ' . $authtype, self::DEBUG_LOWLEVEL);
+            }
+
+            if (!in_array($authtype, $this->server_caps['AUTH'])) {
+                $this->setError("The requested authentication method \"$authtype\" is not supported by the server");
+
+                return false;
+            }
+        } else if (empty($authtype)) {
+            $authtype = 'LOGIN';
+        }
+        switch ($authtype) {
+            case 'PLAIN':
+                // Start authentication
+                if (!$this->sendCommand('AUTH', 'AUTH PLAIN', 334)) {
+                    return false;
+                }
+                // Send encoded username and password
+                if (!$this->sendCommand(
+                    'User & Password',
+                    base64_encode("\0" . $username . "\0" . $password),
+                    235
+                )
+                ) {
+                    return false;
+                }
+                break;
+            case 'LOGIN':
+                // Start authentication
+                if (!$this->sendCommand('AUTH', 'AUTH LOGIN', 334)) {
+                    return false;
+                }
+                if (!$this->sendCommand('Username', base64_encode($username), 334)) {
+                    return false;
+                }
+                if (!$this->sendCommand('Password', base64_encode($password), 235)) {
+                    return false;
+                }
+                break;
+            case 'CRAM-MD5':
+                // Start authentication
+                if (!$this->sendCommand('AUTH CRAM-MD5', 'AUTH CRAM-MD5', 334)) {
+                    return false;
+                }
+                // Get the challenge
+                $challenge = base64_decode(substr($this->last_reply, 4));
+
+                // Build the response
+                $response = $username . ' ' . $this->hmac($challenge, $password);
+
+                // send encoded credentials
+                return $this->sendCommand('Username', base64_encode($response), 235);
+            case 'XOAUTH2':
+                // The OAuth instance must be set up prior to requesting auth.
+                if (null === $OAuth) {
+                    return false;
+                }
+                $oauth = $OAuth->getOauth64();
+
+                // Start authentication
+                if (!$this->sendCommand('AUTH', 'AUTH XOAUTH2 ' . $oauth, 235)) {
+                    return false;
+                }
+                break;
+            default:
+                $this->setError("Authentication method \"$authtype\" is not supported");
+
+                return false;
+        }
+
+        return true;
+    }
 }
