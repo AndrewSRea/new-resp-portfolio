@@ -1086,4 +1086,241 @@ class SMTP
 
         return $this->server_caps[$name];
     }
+
+    /**
+     * Get the last reply from the server.
+     * 
+     * @return string
+     */
+    public function getLastReply()
+    {
+        return $this->last_reply;
+    }
+
+    /**
+     * Read the SMTP server's response.
+     * Either before eof or socket timeout occurs on the operation.
+     * With SMTP we can tell if we have more lines to read if the
+     * 4th character is '-' symbol. If it is a space then we don't
+     * need to read anything else.
+     * 
+     * @return string
+     */
+    public function get_lines()
+    {
+        // If the connection is bad, give up straight away
+        if (!is_resource($this->smtp_conn)) {
+            return '';
+        }
+        $data = '';
+        $endtime = 0;
+        stream_set_timeout($this->smtp_conn, $this->Timeout);
+        if ($this->Timelimit > 0) {
+            $endtime = time() + $this->Timelimit;
+        }
+        $selR = [$this->smtp_conn];
+        $selW = null;
+        while (is_resource($this->smtp_conn) and !feof($this->smtp_conn)) {
+            // Must pass vars in here as params are by reference
+            if (!stream_select($selR, $selW, $selW, $this->Timelimit)) {
+                $this->edebug(
+                    'SMTP -> get_lines(): timed-out (' . $this->Timeout . ' sec)',
+                    self::DEBUG_LOWLEVEL
+                );
+                break;
+            }
+            // Deliberate noise suppression - errors are handled afterwards
+            $str = @fgets($this->smtp_conn, 515);
+            $this->edebug('SMTP INBOUND: "' . trim($str) . '"', self::DEBUG_LOWLEVEL);
+            $data .= $str;
+            // If response is only 3 chars (not valid, but RFC5321 S4.2 says it must be handled),
+            // or 4th character is a space, we are done reading, break the loop,
+            // string array access is a micro-optimization over strlen
+            if (!isset($str[3]) or (isset($str[3]) and $str[3] == ' ')) {
+                break;
+            }
+            // Timed-out? Log and break
+            $info = stream_get_meta_data($this->smtp_conn);
+            if ($info['timed-out']) {
+                $this->edebug(
+                    'SMTP -> get_lines(): timed-out (' . $this->Timeout . ' sec)',
+                    self::DEBUG_LOWLEVEL
+                );
+                break;
+            }
+            // Now check if reads took so long
+            if ($endtime and time() > $endtime) {
+                $this->edebug(
+                    'SMTP -> get_lines(): timelimit reached (' . 
+                    $this->Timelimit . ' sec)',
+                    self::DEBUG_LOWLEVEL
+                );
+                break;
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * Enable or disable VERP address generation.
+     * 
+     * @param bool $enabled
+     */
+    public function setVerp($enabled = false)
+    {
+        $this->do_verp = $enabled;
+    }
+
+    /**
+     * Get VERP address generation mode.
+     * 
+     * @return bool
+     */
+    public function getVerp()
+    {
+        return $this->do_verp;
+    }
+
+    /**
+     * Set error messages and codes.
+     * 
+     * @param string $message      The error message
+     * @param string $detail       Further detail on the error
+     * @param string $smtp_code    An associated SMTP error code
+     * @param string $smtp_code_ex Extended SMTP code
+     */
+    protected function setError($message, $detail = '', $smtp_code = '', $smtp_code_ex = '')
+    {
+        $this->error = [
+            'error' => $message,
+            'detail' => $detail,
+            'smtp_code' => $smtp_code,
+            'smtp_code_ex' => $smtp_code_ex,
+        ];
+    }
+
+    /**
+     * Set debug output method.
+     * 
+     * @param string|callable $method The name of the mechanism to use for debugging output, or a callable to handle it
+     */
+    public function setDebugOutput($method = 'echo')
+    {
+        $this->Debugoutput = $method;
+    }
+
+    /**
+     * Get debug output method.
+     * 
+     * @return string
+     */
+    public function getDebugOutput()
+    {
+        return $this->Debugoutput;
+    }
+
+    /**
+     * Set debug output level.
+     * 
+     * @param int $level 
+     */
+    public function setDebugLevel($level = 0)
+    {
+        $this->do_debug = $level;
+    }
+
+    /**
+     * Get debug output level.
+     * 
+     * @return int
+     */
+    public function getDebugLevel()
+    {
+        return $this->do_debug;
+    }
+
+    /**
+     * Set SMTP timeout.
+     * 
+     * @param int $timeout The timeout duration in seconds
+     */
+    public function setTimeout($timeout = 0)
+    {
+        $this->Timeout = $timeout;
+    }
+
+    /**
+     * Get SMTP timeout.
+     * 
+     * @return int
+     */
+    public function getTimeout()
+    {
+        return $this->Timeout;
+    }
+
+    /**
+     * Reports an error number and string.
+     * 
+     * @param int    $errno   The error number returned by PHP
+     * @param string $errmsg  The error message returned by PHP
+     * @param string $errfile The file the error occurred in
+     * @param int    $errline The line number the error occurred on
+     */
+    protected function errorHandler($errno, $errmsg, $errfile = '', $errline = 0)
+    {
+        $notice = 'Connection failed.';
+        $this->setError(
+            $notice,
+            $errmsg,
+            (string) $errno
+        );
+        $this->edebug(
+            "$notice Error #$errno: $errmsg [$errfile line $errline]",
+            self::DEBUG_CONNECTION
+        );
+    }
+
+    /**
+     * Extract and return the ID of the last SMTP transaction based on
+     * a list of patterns provided in SMTP::$smtp_granaction_id_patterns. 
+     * Relies on the host providing the ID in response to a DATA command.
+     * If no reply has been received yet, it will return null.
+     * If no pattern was matched, it will return false.
+     * 
+     * @return bool|null|string
+     */
+    protected function recordLastTransactionID()
+    {
+        $reply = $this->getLastReply();
+
+        if(empty($reply)) {
+            $this->last_smtp_transaction_id = null;
+        } else {
+            $this->last_smtp_transaction_id = false;
+            foreach ($this->smtp_transaction_id_patterns as $smtp_transaction_id_pattern) {
+                if (preg_match($smtp_transaction_id_pattern, $reply, $matches)) {
+                    $this->last_smtp_transaction_id = trim($matches[1]);
+                    break;
+                }
+            }
+        }
+
+        return $this->last_smtp_transaction_id;
+    }
+
+    /**
+     * Get the queue/transaction ID of the last SMTP transaction
+     * If no reply has been received yet, it will return null.
+     * If no pattern was matched, it will return false.
+     * 
+     * @return boll|null|string
+     * 
+     * @see recordLastTransactionID()
+     */
+    public function getLastTransactionID()
+    {
+        return $this->last_smtp_transaction_id;
+    }
 }
